@@ -68,6 +68,7 @@
 #include "DolphinWX/InputConfigDiag.h"
 #include "DolphinWX/LogWindow.h"
 #include "DolphinWX/MemcardManager.h"
+#include "DolphinWX/MovieEditor.h"
 #include "DolphinWX/NetPlay/NetPlaySetupFrame.h"
 #include "DolphinWX/NetPlay/NetWindow.h"
 #include "DolphinWX/TASInputDlg.h"
@@ -204,6 +205,8 @@ wxMenu* CFrame::CreateMovieMenu()
   movie_menu->Append(IDM_RECORD_EXPORT, GetMenuLabel(HK_EXPORT_RECORDING));
   movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY, GetMenuLabel(HK_READ_ONLY_MODE));
   movie_menu->Append(IDM_TAS_INPUT, _("TAS Input"));
+  movie_menu->AppendSeparator();
+  movie_menu->Append(IDM_MOVIE_EDITOR, _("Movie Editor"));
   movie_menu->AppendSeparator();
   movie_menu->AppendCheckItem(IDM_TOGGLE_PAUSE_MOVIE, _("Pause at End of Movie"));
   movie_menu->Check(IDM_TOGGLE_PAUSE_MOVIE, config_instance.m_PauseMovie);
@@ -906,6 +909,15 @@ void CFrame::OnTASInput(wxCommandEvent& event)
       g_TASInputDlg[i + 4]->SetTitle(wxString::Format(_("TAS Input - Wiimote %d"), i + 1));
     }
   }
+}
+
+void CFrame::OnMovieEditor(wxCommandEvent& event)
+{
+	if (!g_MovieEditor){
+		g_MovieEditor = new MovieEditor(this);
+	} else {
+		g_MovieEditor->Raise();
+	}
 }
 
 void CFrame::OnTogglePauseMovie(wxCommandEvent& WXUNUSED(event))

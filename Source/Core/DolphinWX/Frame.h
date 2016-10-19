@@ -32,6 +32,7 @@ class FifoPlayerDlg;
 class LogConfigWindow;
 class NetPlaySetupFrame;
 class TASInputDlg;
+class MovieEditor;
 class wxCheatsWindow;
 
 class wxAuiManager;
@@ -83,6 +84,7 @@ public:
   NetPlaySetupFrame* g_NetPlaySetupDiag = nullptr;
   wxCheatsWindow* g_CheatsWindow = nullptr;
   TASInputDlg* g_TASInputDlg[8];
+  MovieEditor* g_MovieEditor = nullptr;
 
   void InitBitmaps();
   void DoPause();
@@ -274,6 +276,7 @@ private:
   void OnRecordExport(wxCommandEvent& event);
   void OnRecordReadOnly(wxCommandEvent& event);
   void OnTASInput(wxCommandEvent& event);
+  void OnMovieEditor(wxCommandEvent & event);
   void OnTogglePauseMovie(wxCommandEvent& event);
   void OnToggleDumpFrames(wxCommandEvent& event);
   void OnToggleDumpAudio(wxCommandEvent& event);
