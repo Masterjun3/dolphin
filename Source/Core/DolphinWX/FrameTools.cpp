@@ -915,6 +915,7 @@ void CFrame::OnMovieEditor(wxCommandEvent& event)
 {
 	if (!g_MovieEditor){
 		g_MovieEditor = new MovieEditor(this);
+		Movie::SetMovieEditor(MovieEditorFunction);
 	} else {
 		g_MovieEditor->Raise();
 	}

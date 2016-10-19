@@ -127,6 +127,10 @@ u64 GetCurrentInputCount();
 u64 GetTotalInputCount();
 u64 GetCurrentLagCount();
 u64 GetTotalLagCount();
+u8* GetInput();
+u64 GetCurrentByte();
+u64 GetTotalBytes();
+int GetControllerNumber();
 
 void SetClearSave(bool enabled);
 void SignalDiscChange(const std::string& new_path);
@@ -184,9 +188,12 @@ std::string GetRTCDisplay();
 // Done this way to avoid mixing of core and gui code
 typedef void (*GCManipFunction)(GCPadStatus*, int);
 typedef void (*WiiManipFunction)(u8*, WiimoteEmu::ReportFeatures, int, int, wiimote_key);
+typedef void(*MovieEditorFunction)();
 
 void SetGCInputManip(GCManipFunction);
 void SetWiiInputManip(WiiManipFunction);
+void SetMovieEditor(MovieEditorFunction);
+void UpdateMovieEditor();
 void CallGCInputManip(GCPadStatus* PadStatus, int controllerID);
 void CallWiiInputManip(u8* core, WiimoteEmu::ReportFeatures rptf, int controllerID, int ext,
                        const wiimote_key key);

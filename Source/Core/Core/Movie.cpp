@@ -91,6 +91,7 @@ static std::string s_InputDisplay[8];
 
 static GCManipFunction gcmfunc = nullptr;
 static WiiManipFunction wiimfunc = nullptr;
+static MovieEditorFunction movedfunc = nullptr;
 
 // NOTE: Host / CPU Thread
 static void EnsureTmpInputSize(size_t bound)
@@ -370,6 +371,34 @@ u64 GetCurrentLagCount()
 u64 GetTotalLagCount()
 {
   return s_totalLagCount;
+}
+
+u8 * GetInput()
+{
+	return tmpInput;
+}
+
+u64 GetCurrentByte()
+{
+	return s_currentByte;
+}
+
+u64 GetTotalBytes()
+{
+	return s_totalBytes;
+}
+
+int GetControllerNumber()
+{
+	int pads = 0;
+	for (int i = 0; i < 8; ++i)
+	{
+		if ((s_numPads & (1 << i)) != 0)
+		{
+			pads++;
+		}
+	}
+	return pads;
 }
 
 void SetClearSave(bool enabled)
@@ -870,6 +899,7 @@ void RecordInput(GCPadStatus* PadStatus, int controllerID)
   memcpy(&(tmpInput[s_currentByte]), &s_padState, 8);
   s_currentByte += 8;
   s_totalBytes = s_currentByte;
+  UpdateMovieEditor();
 }
 
 // NOTE: CPU Thread
@@ -1165,6 +1195,7 @@ void LoadInput(const std::string& filename)
   {
     EndPlayInput(false);
   }
+  UpdateMovieEditor();
 }
 
 // NOTE: CPU Thread
@@ -1441,6 +1472,18 @@ void SetGCInputManip(GCManipFunction func)
 void SetWiiInputManip(WiiManipFunction func)
 {
   wiimfunc = func;
+}
+void SetMovieEditor(MovieEditorFunction func)
+{
+	movedfunc = func;
+}
+
+void UpdateMovieEditor()
+{
+	if (movedfunc)
+	{
+		movedfunc();
+	}
 }
 
 // NOTE: CPU Thread

@@ -54,6 +54,7 @@
 #include "DolphinWX/Globals.h"
 #include "DolphinWX/LogWindow.h"
 #include "DolphinWX/Main.h"
+#include "DolphinWX/MovieEditor.h"
 #include "DolphinWX/TASInputDlg.h"
 #include "DolphinWX/WxUtils.h"
 
@@ -1145,6 +1146,13 @@ void WiiTASManipFunction(u8* data, WiimoteEmu::ReportFeatures rptf, int controll
   {
     main_frame->g_TASInputDlg[controllerID + 4]->GetValues(data, rptf, ext, key);
   }
+}
+
+void MovieEditorFunction() {
+	if (main_frame)
+	{
+		main_frame->g_MovieEditor->update();
+	}
 }
 
 void CFrame::OnKeyDown(wxKeyEvent& event)
