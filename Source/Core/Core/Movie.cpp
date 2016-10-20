@@ -1308,6 +1308,7 @@ void PlayController(GCPadStatus* PadStatus, int controllerID)
 
   SetInputDisplayString(s_padState, controllerID);
   CheckInputEnd();
+  UpdateMovieEditor();
 }
 
 // NOTE: CPU Thread
