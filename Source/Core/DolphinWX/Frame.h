@@ -363,4 +363,4 @@ void OnStoppedCallback();
 void GCTASManipFunction(GCPadStatus* PadStatus, int controllerID);
 void WiiTASManipFunction(u8* data, WiimoteEmu::ReportFeatures rptf, int controllerID, int ext,
                          const wiimote_key key);
-void MovieEditorFunction();
+void MovieEditorFunction(int);

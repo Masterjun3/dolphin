@@ -209,6 +209,7 @@ void FrameUpdate()
   }
 
   s_bPolled = false;
+  UpdateMovieEditor(1);
 }
 
 // called when game is booting up, even if no movie is active,
@@ -386,6 +387,10 @@ u64 GetCurrentByte()
 u64 GetTotalBytes()
 {
 	return s_totalBytes;
+}
+
+bool GetPolled() {
+	return s_bPolled;
 }
 
 int GetControllerNumber()
@@ -899,7 +904,7 @@ void RecordInput(GCPadStatus* PadStatus, int controllerID)
   memcpy(&(tmpInput[s_currentByte]), &s_padState, 8);
   s_currentByte += 8;
   s_totalBytes = s_currentByte;
-  UpdateMovieEditor();
+  //UpdateMovieEditor();
 }
 
 // NOTE: CPU Thread
@@ -1195,7 +1200,7 @@ void LoadInput(const std::string& filename)
   {
     EndPlayInput(false);
   }
-  UpdateMovieEditor();
+  UpdateMovieEditor(0);
 }
 
 // NOTE: CPU Thread
@@ -1308,7 +1313,7 @@ void PlayController(GCPadStatus* PadStatus, int controllerID)
 
   SetInputDisplayString(s_padState, controllerID);
   CheckInputEnd();
-  UpdateMovieEditor();
+  //UpdateMovieEditor();
 }
 
 // NOTE: CPU Thread
@@ -1384,6 +1389,7 @@ void EndPlayInput(bool cont)
     // s_totalFrames = s_totalBytes = 0;
     // delete tmpInput;
     // tmpInput = nullptr;
+	UpdateMovieEditor(0);
 
     Core::QueueHostJob([=] {
       Core::UpdateWantDeterminism();
@@ -1479,11 +1485,11 @@ void SetMovieEditor(MovieEditorFunction func)
 	movedfunc = func;
 }
 
-void UpdateMovieEditor()
+void UpdateMovieEditor(int mode)
 {
 	if (movedfunc)
 	{
-		movedfunc();
+		movedfunc(mode);
 	}
 }
 

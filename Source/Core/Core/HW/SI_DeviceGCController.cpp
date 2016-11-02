@@ -136,6 +136,7 @@ void CSIDevice_GCController::HandleMoviePadStatus(GCPadStatus* PadStatus)
   {
     Movie::CheckPadStatus(PadStatus, ISIDevice::m_iDeviceNumber);
   }
+  Movie::UpdateMovieEditor(0);
 }
 
 GCPadStatus CSIDevice_GCController::GetPadStatus()

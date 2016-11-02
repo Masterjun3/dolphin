@@ -1148,10 +1148,10 @@ void WiiTASManipFunction(u8* data, WiimoteEmu::ReportFeatures rptf, int controll
   }
 }
 
-void MovieEditorFunction() {
+void MovieEditorFunction(int mode) {
 	if (main_frame)
 	{
-		main_frame->g_MovieEditor->update();
+		main_frame->g_MovieEditor->update(mode);
 	}
 }
 
