@@ -207,9 +207,7 @@ void FrameUpdate()
     s_bFrameStep = false;
     CPU::Break();
   }
-
   s_bPolled = false;
-  UpdateMovieEditor(1);
 }
 
 // called when game is booting up, even if no movie is active,
@@ -387,10 +385,6 @@ u64 GetCurrentByte()
 u64 GetTotalBytes()
 {
 	return s_totalBytes;
-}
-
-bool GetPolled() {
-	return s_bPolled;
 }
 
 int GetControllerNumber()
@@ -1200,7 +1194,7 @@ void LoadInput(const std::string& filename)
   {
     EndPlayInput(false);
   }
-  UpdateMovieEditor(0);
+  UpdateMovieEditor(1);
 }
 
 // NOTE: CPU Thread
@@ -1489,7 +1483,7 @@ void UpdateMovieEditor(int mode)
 {
 	if (movedfunc)
 	{
-		movedfunc(mode);
+		(*movedfunc)(mode);
 	}
 }
 

@@ -16,11 +16,11 @@ bool pressed[linecount][8][12];
 const int idstart = 310;
 wxStaticText* label;
 std::string labeltext;
+//wxScrollBar* scrollbar;
+int maxlines = 0;
+int scroll = 0;
 
-u8* lagWatch = nullptr;
-static size_t lagWatchAllocated = 0;
-u64 lagWatchSize = 0;
-bool polled = false;
+bool changed = false;
 
 MovieEditor::MovieEditor(wxWindow* parent, wxWindowID id, const wxString& title, const wxPoint& position, const wxSize& size, long style) : wxDialog(parent, id, title, position, size, style)
 {
@@ -33,7 +33,8 @@ MovieEditor::MovieEditor(wxWindow* parent, wxWindowID id, const wxString& title,
 	wxSize linesize(GetSize().GetX(), lheight);
 
 	label = new wxStaticText(this, 300, _("0 | 128 128 128 128 000 000 A B X Y Z L R S < ^ > v"), wxPoint(0,0), linesize);
-	//scroll = new wxScrollBar(this, 301, wxDefaultPosition, wxDefaultSize, wxSB_VERTICAL);
+	//scrollbar = new wxScrollBar(this, 301, wxDefaultPosition, wxDefaultSize, wxSB_VERTICAL);
+	updateScrollbar();
 
 	//label->Bind(wxEVT_LEFT_DOWN, &MovieEditor::OnEvent_Click, this);
 	Bind(wxEVT_CLOSE_WINDOW, &MovieEditor::OnEvent_Close, this);
@@ -47,7 +48,6 @@ MovieEditor::MovieEditor(wxWindow* parent, wxWindowID id, const wxString& title,
 		lines[i]->Wrap(-1);
 		lines[i]->Bind(wxEVT_LEFT_DOWN, &MovieEditor::OnEvent_Click, this);
 	}
-	EnsureLagWatchSize(1);
 	Show();
 	update(0);
 }
@@ -55,16 +55,16 @@ MovieEditor::MovieEditor(wxWindow* parent, wxWindowID id, const wxString& title,
 MovieEditor::~MovieEditor()
 {
 	main_frame->g_MovieEditor = nullptr;
-	delete[] lagWatch;
+	//Show(false);
 }
 
-void MovieEditor::paint(wxPaintEvent&) {
+void MovieEditor::paint(wxPaintEvent& event) {
 	wxPaintDC dc(this);
 	dc.Clear();
 	//dc.SetBackgroundMode(wxPENSTYLE_SOLID);
 	wxColor cBlack(*wxBLACK);
 	wxColor cRed(*wxRED);
-	wxColor cGrey(0xC0C0C0UL);
+	wxColor cGrey(0xC0C0C0/*C0MBO BREAKER*/);
 		
 	wxColor cText = cBlack;
 
@@ -98,6 +98,7 @@ void MovieEditor::paint(wxPaintEvent&) {
 			dc.DrawText(linestext[i][j], j*lwidth, 400 + (i + 1)*lheight);
 		}
 	}
+	//updateScrollbar();
 }
 
 void MovieEditor::resized(wxSizeEvent& event)
@@ -105,7 +106,9 @@ void MovieEditor::resized(wxSizeEvent& event)
 	Refresh();
 }
 
-bool changed = false;
+void MovieEditor::updateScrollbar() {
+	SetScrollbar(wxSB_VERTICAL, scroll, linecount, maxlines);
+}
 
 void MovieEditor::repaint(wxIdleEvent&)
 {
@@ -119,14 +122,9 @@ void MovieEditor::repaint(wxIdleEvent&)
 	}
 }
 
-int scroll = 0;
-
 void MovieEditor::update(int mode)
 {
-	if (mode == 1) {
-		polled = true;
-		return;
-	}
+	bool loadedState = (mode == 1);
 	u64 totalbytes = Movie::GetTotalBytes();
 	if (totalbytes==0)
 	{
@@ -141,6 +139,7 @@ void MovieEditor::update(int mode)
 
 	int curframe = curbyte / (8 * pads);
 	int totalframes = totalbytes / (8 * pads);
+	if (totalframes > maxlines) { maxlines = totalframes; }
 	int maxscroll = totalframes - (linecount - 1);
 	if (maxscroll < 0) { maxscroll = 0; }
 	int maxscrollre = curframe - (linecount - 1);
@@ -154,35 +153,11 @@ void MovieEditor::update(int mode)
 		else if (scroll > maxscroll) { scroll = maxscroll; }
 	}
 
-	if (curframe > 0) {
-		int updateframe = curframe - 1;
-		if (updateframe >= lagWatchSize) {
-			EnsureLagWatchSize((size_t)(updateframe + 1));
-			lagWatchSize = updateframe + 1;
-		}
-		if (polled) {
-			lagWatch[updateframe] = 2;
-			polled = false;
-		}
-		else {
-			lagWatch[updateframe] = 1;
-		}
-	}
-
 	for (int line = 0; line<linecount; line++)
 	{
 		int frame = scroll + line;
 		int index = frame * (8 * pads);
 		std::string text = "B.";
-		if (frame >= lagWatchSize) {
-			text += "?";
-		}
-		else if (lagWatch[frame] == 1) {
-			text += "L";
-		}
-		else if (lagWatch[frame] == 2) {
-			text += " ";
-		}
 		if (index >= 0 && index <= totalbytes)
 		{
 			if (index == curbyte) { text += "-->"; }
@@ -227,25 +202,6 @@ void MovieEditor::updatePressed(u8 b1, u8 b2, int pad, int line) {
 			b2 >>= 1;
 		}
 	}
-}
-
-void MovieEditor::EnsureLagWatchSize(size_t bound)
-{
-	if (lagWatchAllocated >= bound)
-		return;
-	size_t newAlloc = 1024;
-	while (newAlloc < bound)
-		newAlloc *= 2;
-
-	u8* newLagWatch = new u8[newAlloc];
-	lagWatchAllocated = newAlloc;
-	if (lagWatch != nullptr)
-	{
-		if (lagWatchSize > 0)
-			memcpy(newLagWatch, lagWatch, (size_t)lagWatchSize);
-		delete[] lagWatch;
-	}
-	lagWatch = newLagWatch;
 }
 
 void MovieEditor::OnEvent_Close(wxCloseEvent&)

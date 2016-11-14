@@ -1,5 +1,6 @@
 
 #include <wx/wx.h>
+#include "Common/CommonTypes.h"
 
 class MovieEditor : public wxDialog
 {
@@ -15,9 +16,9 @@ public:
 private:
 	void paint(wxPaintEvent&);
 	void resized(wxSizeEvent&);
+	void updateScrollbar();
 	void repaint(wxIdleEvent&);
 	void OnEvent_Close(wxCloseEvent&);
 	void OnEvent_Click(wxMouseEvent&);
 	void updatePressed(u8, u8, int, int);
-	void EnsureLagWatchSize(size_t bound);
 };

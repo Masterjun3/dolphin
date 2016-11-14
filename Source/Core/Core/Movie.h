@@ -130,7 +130,6 @@ u64 GetTotalLagCount();
 u8* GetInput();
 u64 GetCurrentByte();
 u64 GetTotalBytes();
-bool GetPolled();
 int GetControllerNumber();
 
 void SetClearSave(bool enabled);
