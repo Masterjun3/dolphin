@@ -20,6 +20,8 @@ std::string labeltext;
 int maxlines = 0;
 int scroll = 0;
 
+double speed;
+
 bool changed = false;
 
 MovieEditor::MovieEditor(wxWindow* parent, wxWindowID id, const wxString& title, const wxPoint& position, const wxSize& size, long style) : wxDialog(parent, id, title, position, size, style)
