@@ -47,7 +47,8 @@
 namespace Movie
 {
 static bool s_bFrameStep = false;
-static bool s_bReadOnly = true;
+//static bool s_bReadOnly = true;
+static u8 s_readOnly = true;
 static u32 s_rerecords = 0;
 static PlayMode s_playMode = MODE_NONE;
 
@@ -296,10 +297,30 @@ void DoFrameStep()
 // NOTE: Host Thread
 void SetReadOnly(bool bEnabled)
 {
-  if (s_bReadOnly != bEnabled)
-    Core::DisplayMessage(bEnabled ? "Read-only mode." : "Read+Write mode.", 1000);
+//  if (s_bReadOnly != bEnabled)
+//    Core::DisplayMessage(bEnabled ? "Read-only mode." : "Read+Write mode.", 1000);
+	if (bEnabled) {
+		s_readOnly = s_numPads;
+		//Core::DisplayMessage(StringFromFormat("%d Read-only mode.",s_numPads), 1000);
+	}
+	else {
+		s_readOnly = 0;
+		//Core::DisplayMessage(StringFromFormat("Read-write mode.", s_numPads), 1000);
+	}
+}
 
-  s_bReadOnly = bEnabled;
+// NOTE: Host Thread
+void SetReadOnly(bool bEnabled, int controller)
+{
+	if (IsReadOnly(controller) != bEnabled) {
+		Core::DisplayMessage(bEnabled ? StringFromFormat("P%d Read-only mode.", controller) : StringFromFormat("P%d Read+Write mode.", controller), 1000);
+	}
+	if (bEnabled) {
+		s_readOnly |= (1 << controller);
+	}
+	else {
+		s_readOnly &= 0xFF ^ (1 << controller);
+	}
 }
 
 bool IsRecordingInput()
@@ -334,7 +355,12 @@ bool IsMovieActive()
 
 bool IsReadOnly()
 {
-  return s_bReadOnly;
+  //return s_bReadOnly;
+	return s_readOnly == s_numPads;
+}
+bool IsReadOnly(int controller)
+{
+	return (s_readOnly >> controller) & 1;
 }
 
 u64 GetRecordingStartTime()
@@ -398,6 +424,11 @@ int GetControllerNumber()
 		}
 	}
 	return pads;
+}
+
+u8 GetReadOnly()
+{
+	return s_readOnly;
 }
 
 void SetClearSave(bool enabled)
@@ -892,12 +923,24 @@ void RecordInput(GCPadStatus* PadStatus, int controllerID)
   if (!IsRecordingInput() || !IsUsingPad(controllerID))
     return;
 
+  if (IsReadOnly(controllerID)) {
+	  if (s_currentByte == s_totalBytes) {
+		  EnsureTmpInputSize((size_t)(s_totalBytes + 8));
+		  memset(&(tmpInput[s_currentByte]), 0, 4);
+		  memset(&(tmpInput[s_currentByte])+4, 0x80, 4);
+		  s_totalBytes += 8;
+	  }
+	  return;
+  }
+
   CheckPadStatus(PadStatus, controllerID);
 
-  EnsureTmpInputSize((size_t)(s_currentByte + 8));
+  EnsureTmpInputSize((size_t)(s_totalBytes + 8));
   memcpy(&(tmpInput[s_currentByte]), &s_padState, 8);
   s_currentByte += 8;
-  s_totalBytes = s_currentByte;
+  if (s_totalBytes < s_currentByte) {
+	  s_totalBytes += 8;
+  }
   //UpdateMovieEditor();
 }
 
@@ -1053,7 +1096,7 @@ void LoadInput(const std::string& filename)
     return;
   }
   ReadHeader();
-  if (!s_bReadOnly)
+  if (!IsReadOnly())
   {
     s_rerecords++;
     tmpHeader.numRerecords = s_rerecords;
@@ -1078,7 +1121,7 @@ void LoadInput(const std::string& filename)
     afterEnd = true;
   }
 
-  if (!s_bReadOnly || tmpInput == nullptr)
+  if (s_readOnly == 0 || tmpInput == nullptr)
   {
     s_totalFrames = tmpHeader.frameCount;
     s_totalLagCount = tmpHeader.lagCount;
@@ -1173,7 +1216,7 @@ void LoadInput(const std::string& filename)
 
   if (!afterEnd)
   {
-    if (s_bReadOnly)
+    if (IsReadOnly())
     {
       if (s_playMode != MODE_PLAYING)
       {
@@ -1203,7 +1246,7 @@ static void CheckInputEnd()
   if (s_currentByte >= s_totalBytes ||
       (CoreTiming::GetTicks() > s_totalTickCount && !IsRecordingInputFromSaveState()))
   {
-    EndPlayInput(!s_bReadOnly);
+    EndPlayInput(!IsReadOnly());
   }
 }
 
@@ -1212,14 +1255,14 @@ void PlayController(GCPadStatus* PadStatus, int controllerID)
 {
   // Correct playback is entirely dependent on the emulator polling the controllers
   // in the same order done during recording
-  if (!IsPlayingInput() || !IsUsingPad(controllerID) || tmpInput == nullptr)
+  if ((!IsPlayingInput() && !IsReadOnly(controllerID)) || !IsUsingPad(controllerID) || tmpInput == nullptr)
     return;
 
   if (s_currentByte + 8 > s_totalBytes)
   {
     PanicAlertT("Premature movie end in PlayController. %u + 8 > %u", (u32)s_currentByte,
                 (u32)s_totalBytes);
-    EndPlayInput(!s_bReadOnly);
+    EndPlayInput(!IsReadOnly());
     return;
   }
 
@@ -1306,7 +1349,7 @@ void PlayController(GCPadStatus* PadStatus, int controllerID)
     ProcessorInterface::ResetButton_Tap();
 
   SetInputDisplayString(s_padState, controllerID);
-  CheckInputEnd();
+  //CheckInputEnd();
   //UpdateMovieEditor();
 }
 
@@ -1321,7 +1364,7 @@ bool PlayWiimote(int wiimote, u8* data, const WiimoteEmu::ReportFeatures& rptf, 
   {
     PanicAlertT("Premature movie end in PlayWiimote. %u > %u", (u32)s_currentByte,
                 (u32)s_totalBytes);
-    EndPlayInput(!s_bReadOnly);
+    EndPlayInput(!IsReadOnly());
     return false;
   }
 
@@ -1336,7 +1379,7 @@ bool PlayWiimote(int wiimote, u8* data, const WiimoteEmu::ReportFeatures& rptf, 
                 (s_numPads & 0xF) ? " Try re-creating the recording with all GameCube controllers "
                                     "disabled (in Configure > GameCube > Device Settings)." :
                                     "");
-    EndPlayInput(!s_bReadOnly);
+    EndPlayInput(!IsReadOnly());
     return false;
   }
 
@@ -1346,7 +1389,7 @@ bool PlayWiimote(int wiimote, u8* data, const WiimoteEmu::ReportFeatures& rptf, 
   {
     PanicAlertT("Premature movie end in PlayWiimote. %u + %d > %u", (u32)s_currentByte, size,
                 (u32)s_totalBytes);
-    EndPlayInput(!s_bReadOnly);
+    EndPlayInput(!IsReadOnly());
     return false;
   }
 
@@ -1365,6 +1408,7 @@ void EndPlayInput(bool cont)
   if (cont)
   {
     s_playMode = MODE_RECORDING;
+	SetReadOnly(false);
     Core::DisplayMessage("Reached movie end. Resuming recording.", 2000);
   }
   else if (s_playMode != MODE_NONE)

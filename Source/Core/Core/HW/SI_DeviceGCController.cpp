@@ -122,6 +122,7 @@ void CSIDevice_GCController::HandleMoviePadStatus(GCPadStatus* PadStatus)
   if (NetPlay_GetInput(ISIDevice::m_iDeviceNumber, PadStatus))
   {
   }
+  /*
   else if (Movie::IsPlayingInput())
   {
     Movie::PlayController(PadStatus, ISIDevice::m_iDeviceNumber);
@@ -131,6 +132,12 @@ void CSIDevice_GCController::HandleMoviePadStatus(GCPadStatus* PadStatus)
   {
     Movie::RecordInput(PadStatus, ISIDevice::m_iDeviceNumber);
     Movie::InputUpdate();
+  }
+  */
+  else if (Movie::IsPlayingInput() || Movie::IsRecordingInput()){
+	  Movie::RecordInput(PadStatus, ISIDevice::m_iDeviceNumber);
+	  Movie::PlayController(PadStatus, ISIDevice::m_iDeviceNumber);
+	  Movie::InputUpdate();
   }
   else
   {

@@ -111,7 +111,11 @@ void CRenderFrame::OnDropFiles(wxDropFilesEvent& event)
     {
       // let's make the read-only flag consistent at the start of a movie.
       Movie::SetReadOnly(true);
-      main_frame->GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY)->Check(true);
+      //main_frame->GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY)->Check(true);
+      main_frame->GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY_P1)->Check(true);
+      main_frame->GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY_P2)->Check(true);
+      main_frame->GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY_P3)->Check(true);
+      main_frame->GetMenuBar()->FindItem(IDM_RECORD_READ_ONLY_P4)->Check(true);
     }
 
     if (Movie::PlayInput(filepath))
@@ -244,7 +248,11 @@ EVT_MENU(IDM_RESET, CFrame::OnReset)
 EVT_MENU(IDM_RECORD, CFrame::OnRecord)
 EVT_MENU(IDM_PLAY_RECORD, CFrame::OnPlayRecording)
 EVT_MENU(IDM_RECORD_EXPORT, CFrame::OnRecordExport)
-EVT_MENU(IDM_RECORD_READ_ONLY, CFrame::OnRecordReadOnly)
+//EVT_MENU(IDM_RECORD_READ_ONLY, CFrame::OnRecordReadOnly)
+EVT_MENU(IDM_RECORD_READ_ONLY_P1, CFrame::OnRecordReadOnlyP1)
+EVT_MENU(IDM_RECORD_READ_ONLY_P2, CFrame::OnRecordReadOnlyP2)
+EVT_MENU(IDM_RECORD_READ_ONLY_P3, CFrame::OnRecordReadOnlyP3)
+EVT_MENU(IDM_RECORD_READ_ONLY_P4, CFrame::OnRecordReadOnlyP4)
 EVT_MENU(IDM_TAS_INPUT, CFrame::OnTASInput)
 EVT_MENU(IDM_MOVIE_EDITOR, CFrame::OnMovieEditor)
 EVT_MENU(IDM_TOGGLE_PAUSE_MOVIE, CFrame::OnTogglePauseMovie)
@@ -968,7 +976,7 @@ int GetCmdForHotkey(unsigned int key)
   case HK_EXPORT_RECORDING:
     return IDM_RECORD_EXPORT;
   case HK_READ_ONLY_MODE:
-    return IDM_RECORD_READ_ONLY;
+    return IDM_RECORD_READ_ONLY_P1;
   case HK_FULLSCREEN:
     return IDM_TOGGLE_FULLSCREEN;
   case HK_SCREENSHOT:

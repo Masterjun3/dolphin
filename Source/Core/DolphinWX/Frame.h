@@ -274,7 +274,11 @@ private:
   void OnRecord(wxCommandEvent& event);
   void OnPlayRecording(wxCommandEvent& event);
   void OnRecordExport(wxCommandEvent& event);
-  void OnRecordReadOnly(wxCommandEvent& event);
+  //void OnRecordReadOnly(wxCommandEvent& event
+  void OnRecordReadOnlyP1(wxCommandEvent& event);
+  void OnRecordReadOnlyP2(wxCommandEvent& event);
+  void OnRecordReadOnlyP3(wxCommandEvent& event);
+  void OnRecordReadOnlyP4(wxCommandEvent& event);
   void OnTASInput(wxCommandEvent& event);
   void OnMovieEditor(wxCommandEvent & event);
   void OnTogglePauseMovie(wxCommandEvent& event);

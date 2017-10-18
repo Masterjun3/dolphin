@@ -119,6 +119,7 @@ bool IsJustStartingPlayingInputFromSaveState();
 bool IsPlayingInput();
 bool IsMovieActive();
 bool IsReadOnly();
+bool IsReadOnly(int controller);
 u64 GetRecordingStartTime();
 
 u64 GetCurrentFrame();
@@ -131,6 +132,7 @@ u8* GetInput();
 u64 GetCurrentByte();
 u64 GetTotalBytes();
 int GetControllerNumber();
+u8 GetReadOnly();
 
 void SetClearSave(bool enabled);
 void SignalDiscChange(const std::string& new_path);
@@ -161,6 +163,7 @@ void ChangeWiiPads(bool instantly = false);
 
 void DoFrameStep();
 void SetReadOnly(bool bEnabled);
+void SetReadOnly(bool bEnabled, int controller);
 
 bool BeginRecordingInput(int controllers);
 void RecordInput(GCPadStatus* PadStatus, int controllerID);

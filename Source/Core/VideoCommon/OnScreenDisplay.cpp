@@ -52,7 +52,7 @@ void DrawMessages()
     std::lock_guard<std::mutex> lock(s_messages_mutex);
 
     u32 now = Common::Timer::GetTimeMs();
-    int left = 20, top = 35;
+    int left = 20, top = 95;
 
     auto it = s_messages.begin();
     while (it != s_messages.end())

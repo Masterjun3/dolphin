@@ -67,6 +67,7 @@ void MovieEditor::paint(wxPaintEvent& event) {
 	wxColor cBlack(*wxBLACK);
 	wxColor cRed(*wxRED);
 	wxColor cGrey(0xC0C0C0/*C0MBO BREAKER*/);
+	/*good joke*/
 		
 	wxColor cText = cBlack;
 
@@ -187,6 +188,8 @@ void MovieEditor::update(int mode)
 	text += std::to_string((int)curframe);
 	text += "/";
 	text += std::to_string((int)totalframes);
+	text += " | ";
+	text += std::to_string((int)Movie::GetReadOnly());
 	//label->SetLabel(text);
 	labeltext = text;
 	changed = true;
