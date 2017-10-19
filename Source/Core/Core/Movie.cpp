@@ -1646,7 +1646,7 @@ void GetMD5()
 {
   Core::DisplayMessage("Calculating checksum of game file...", 2000);
   memset(s_MD5, 0, sizeof(s_MD5));
-  mbedtls_md_file(s_md5_info, SConfig::GetInstance().m_strFilename.c_str(), s_MD5);
+  //mbedtls_md_file(s_md5_info, SConfig::GetInstance().m_strFilename.c_str(), s_MD5);
   Core::DisplayMessage("Finished calculating checksum.", 2000);
 }
 

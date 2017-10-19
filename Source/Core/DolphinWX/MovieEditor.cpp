@@ -6,10 +6,11 @@
 #include "DolphinWX/Main.h"
 #include "Frame.h"
 #include "Core/Movie.h"
+#include "Common/Logging/Log.h"
 
 const int lwidth = 8;
 const int lheight = 13;
-const int linecount = 20;
+const int linecount = 40;
 wxStaticText* lines[linecount];
 std::string linestext[linecount];
 bool pressed[linecount][8][12];
@@ -39,17 +40,18 @@ MovieEditor::MovieEditor(wxWindow* parent, wxWindowID id, const wxString& title,
 	updateScrollbar();
 
 	//label->Bind(wxEVT_LEFT_DOWN, &MovieEditor::OnEvent_Click, this);
+	Bind(wxEVT_LEFT_DOWN, &MovieEditor::OnEvent_Click, this);
 	Bind(wxEVT_CLOSE_WINDOW, &MovieEditor::OnEvent_Close, this);
 	Bind(wxEVT_IDLE, &MovieEditor::repaint, this);
 	Bind(wxEVT_SIZE, &MovieEditor::resized, this);
 
 	Bind(wxEVT_PAINT, &MovieEditor::paint, this);
 
-	for (int i = 0; i < linecount; i++) {
+	/*for (int i = 0; i < linecount; i++) {
 		lines[i] = new wxStaticText(this, idstart + i, std::to_string(fsize.GetX()) + " " + std::to_string(fsize.GetY()), wxPoint(0,(i+1)*lheight), linesize);
 		lines[i]->Wrap(-1);
 		lines[i]->Bind(wxEVT_LEFT_DOWN, &MovieEditor::OnEvent_Click, this);
-	}
+	}*/
 	Show();
 	update(0);
 }
@@ -65,21 +67,26 @@ void MovieEditor::paint(wxPaintEvent& event) {
 	dc.Clear();
 	//dc.SetBackgroundMode(wxPENSTYLE_SOLID);
 	wxColor cBlack(*wxBLACK);
-	wxColor cRed(*wxRED);
+	wxColor cLightBlue(0xC0C0FF);
 	wxColor cGrey(0xC0C0C0/*C0MBO BREAKER*/);
 	/*good joke*/
 		
 	wxColor cText = cBlack;
 
-	dc.DrawText(labeltext, 0, 400);
+	dc.SetTextBackground(cLightBlue);
+	dc.SetBackgroundMode(wxPENSTYLE_TRANSPARENT);
+
+	dc.DrawText(labeltext, 0, 0);
 	for (int i = 0; i < linecount; i++) {
 		//dc.DrawText(linestext[i], 0, 400 + (i + 1)*lheight);
 		int pad = 0;
 		int button = 0;
 		bool colorInput = false;
 		cText = cBlack;
+		dc.SetBackgroundMode(wxPENSTYLE_TRANSPARENT);
 		for (int j = 0; j < linestext[i].length(); j++) {
 			if (colorInput) {
+				if (!Movie::IsReadOnly(pad)) { dc.SetBackgroundMode(wxPENSTYLE_SOLID); }
 				if (pressed[i][pad][button]) {
 					cText = cBlack;
 				}
@@ -93,12 +100,13 @@ void MovieEditor::paint(wxPaintEvent& event) {
 				}
 			}
 			else if (linestext[i][j]=='|') {
+				dc.SetBackgroundMode(wxPENSTYLE_TRANSPARENT);
 				colorInput = true;
 				button = 0;
 				cText = cBlack;
 			}
 			dc.SetTextForeground(cText);
-			dc.DrawText(linestext[i][j], j*lwidth, 400 + (i + 1)*lheight);
+			dc.DrawText(linestext[i][j], j*lwidth, 0 + (i + 1)*lheight);
 		}
 	}
 	//updateScrollbar();
@@ -118,9 +126,9 @@ void MovieEditor::repaint(wxIdleEvent&)
 	if (changed)
 	{
 		label->SetLabel(labeltext);
-		for (int i = 0; i < linecount; i++) {
+		/*for (int i = 0; i < linecount; i++) {
 			lines[i]->SetLabel(linestext[i]);
-		}
+		}*/
 		changed = false;
 	}
 }
@@ -216,11 +224,16 @@ void MovieEditor::OnEvent_Close(wxCloseEvent&)
 
 void MovieEditor::OnEvent_Click(wxMouseEvent& event)
 {
-	update(0);
-	wxStaticText* ob = (wxStaticText*)(event.GetEventObject());
-	int id = ob->GetId()-idstart;
-	ob->SetLabel(std::to_string(id));
-	
-	//label->SetLabel(std::to_string(event.GetX())+" "+std::to_string(event.GetY()));
-	//Refresh();
+	int controller = 0;
+	int mX = event.GetX();
+	size_t pos = linestext[0].find("|");
+	while (pos != std::string::npos) {
+		if ((pos + 1) * lwidth <= mX && mX < (pos + 13) * lwidth) {
+			Movie::SetReadOnly(!Movie::IsReadOnly(controller),controller);
+		}
+		pos = linestext[0].find("|",pos+1);
+		controller++;
+		//if (controller >= 10000) { exit(0xBADC0DE); }
+	}
+	Refresh();
 }
