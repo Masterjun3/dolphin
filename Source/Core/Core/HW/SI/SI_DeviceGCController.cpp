@@ -125,6 +125,7 @@ void CSIDevice_GCController::HandleMoviePadStatus(GCPadStatus* pad_status)
   if (NetPlay_GetInput(m_device_number, pad_status))
   {
   }
+  /*
   else if (Movie::IsPlayingInput())
   {
     Movie::PlayController(pad_status, m_device_number);
@@ -134,11 +135,17 @@ void CSIDevice_GCController::HandleMoviePadStatus(GCPadStatus* pad_status)
   {
     Movie::RecordInput(pad_status, m_device_number);
     Movie::InputUpdate();
+  }*/
+  else if (Movie::IsPlayingInput() || Movie::IsRecordingInput()) {
+    Movie::RecordInput(pad_status, m_device_number);
+    Movie::PlayController(pad_status, m_device_number);
+    Movie::InputUpdate();
   }
   else
   {
     Movie::CheckPadStatus(pad_status, m_device_number);
   }
+  Movie::UpdateMovieEditor(0);
 }
 
 GCPadStatus CSIDevice_GCController::GetPadStatus()

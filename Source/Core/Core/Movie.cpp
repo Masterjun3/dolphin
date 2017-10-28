@@ -100,7 +100,7 @@ static std::string s_InputDisplay[8];
 
 static GCManipFunction s_gc_manip_func;
 static WiiManipFunction s_wii_manip_func;
-static MovieEditorFunction movedfunc = nullptr;
+static MovieEditorFunction s_moved_manip_func;
 
 static std::string s_current_file_name;
 
@@ -274,7 +274,7 @@ void SetReadOnly(bool bEnabled)
 //  if (s_bReadOnly != bEnabled)
 //    Core::DisplayMessage(bEnabled ? "Read-only mode." : "Read+Write mode.", 1000);
 	if (bEnabled) {
-		s_readOnly = s_numPads;
+		s_readOnly = s_controllers;
 		//Core::DisplayMessage(StringFromFormat("%d Read-only mode.",s_numPads), 1000);
 	}
 	else {
@@ -330,7 +330,7 @@ bool IsMovieActive()
 bool IsReadOnly()
 {
   //return s_bReadOnly;
-	return s_readOnly == s_numPads;
+	return s_readOnly == s_controllers;
 }
 bool IsReadOnly(int controller)
 {
@@ -372,9 +372,9 @@ u64 GetTotalLagCount()
   return s_totalLagCount;
 }
 
-u8 * GetInput()
+std::vector<u8> GetInput()
 {
-	return tmpInput;
+	return s_temp_input;
 }
 
 u64 GetCurrentByte()
@@ -384,7 +384,7 @@ u64 GetCurrentByte()
 
 u64 GetTotalBytes()
 {
-	return s_totalBytes;
+	return s_temp_input.size();
 }
 
 int GetControllerNumber()
@@ -392,7 +392,7 @@ int GetControllerNumber()
 	int pads = 0;
 	for (int i = 0; i < 8; ++i)
 	{
-		if ((s_numPads & (1 << i)) != 0)
+		if ((s_controllers & (1 << i)) != 0)
 		{
 			pads++;
 		}
@@ -856,23 +856,21 @@ void RecordInput(GCPadStatus* PadStatus, int controllerID)
     return;
 
   if (IsReadOnly(controllerID)) {
-	  if (s_currentByte == s_totalBytes) {
-		  EnsureTmpInputSize((size_t)(s_totalBytes + 8));
-		  memset(&(tmpInput[s_currentByte]), 0, 4);
-		  memset(&(tmpInput[s_currentByte])+4, 0x80, 4);
-		  s_totalBytes += 8;
+	  if (s_currentByte == s_temp_input.size()) {
+      s_temp_input.resize((s_temp_input.size() + 8));
+		  memset(&(s_temp_input[s_currentByte]), 0, 4);
+		  memset(&(s_temp_input[s_currentByte])+4, 0x80, 4);
 	  }
 	  return;
   }
 
   CheckPadStatus(PadStatus, controllerID);
 
-  s_temp_input.resize(s_totalBytes + sizeof(ControllerState));
+  if (s_temp_input.size() <= s_currentByte) {
+    s_temp_input.resize(s_temp_input.size() + sizeof(ControllerState));
+  }
   memcpy(&s_temp_input[s_currentByte], &s_padState, sizeof(ControllerState));
   s_currentByte += sizeof(ControllerState);
-  if (s_totalBytes < s_currentByte) {
-	  s_totalBytes += sizeof(ControllerState);
-  }
   //UpdateMovieEditor();
 }
 
@@ -1173,7 +1171,7 @@ void PlayController(GCPadStatus* PadStatus, int controllerID)
 {
   // Correct playback is entirely dependent on the emulator polling the controllers
   // in the same order done during recording
-  if ((!IsPlayingInput() && IsReadOnly(controllerID)) || !IsUsingPad(controllerID) || s_temp_input.empty())
+  if ((!IsPlayingInput() && !IsReadOnly(controllerID)) || !IsUsingPad(controllerID) || s_temp_input.empty())
     return;
 
   if (s_currentByte + sizeof(ControllerState) > s_temp_input.size())
@@ -1426,14 +1424,14 @@ void SetWiiInputManip(WiiManipFunction func)
 }
 void SetMovieEditor(MovieEditorFunction func)
 {
-	movedfunc = func;
+	s_moved_manip_func = func;
 }
 
 void UpdateMovieEditor(int mode)
 {
-	if (movedfunc)
+	if (s_moved_manip_func)
 	{
-		(*movedfunc)(mode);
+    s_moved_manip_func(mode);
 	}
 }
 

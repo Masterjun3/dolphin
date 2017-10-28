@@ -118,16 +118,6 @@ wxMenuBar* CFrame::CreateMenuBar() const
 {
   const auto menu_type =
       m_use_debugger ? MainMenuBar::MenuType::Debug : MainMenuBar::MenuType::Regular;
-  movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY_P1, GetMenuLabel(HK_READ_ONLY_MODE));
-  movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY_P2, GetMenuLabel(HK_READ_ONLY_MODE));
-  movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY_P3, GetMenuLabel(HK_READ_ONLY_MODE));
-  movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY_P4, GetMenuLabel(HK_READ_ONLY_MODE));
-  movie_menu->Append(IDM_MOVIE_EDITOR, _("Movie Editor"));
-  movie_menu->AppendSeparator();
-  movie_menu->Check(IDM_RECORD_READ_ONLY_P1, true);
-  movie_menu->Check(IDM_RECORD_READ_ONLY_P2, true);
-  movie_menu->Check(IDM_RECORD_READ_ONLY_P3, true);
-  movie_menu->Check(IDM_RECORD_READ_ONLY_P4, true);
 
   return new MainMenuBar{menu_type};
 }
@@ -166,7 +156,11 @@ void CFrame::BindMenuBarEvents()
   Bind(wxEVT_MENU, &CFrame::OnPlayRecording, this, IDM_PLAY_RECORD);
   Bind(wxEVT_MENU, &CFrame::OnStopRecording, this, IDM_STOP_RECORD);
   Bind(wxEVT_MENU, &CFrame::OnRecordExport, this, IDM_RECORD_EXPORT);
-  Bind(wxEVT_MENU, &CFrame::OnRecordReadOnly, this, IDM_RECORD_READ_ONLY);
+  Bind(wxEVT_MENU, &CFrame::OnRecordReadOnlyP1, this, IDM_RECORD_READ_ONLY_P1);
+  Bind(wxEVT_MENU, &CFrame::OnRecordReadOnlyP2, this, IDM_RECORD_READ_ONLY_P2);
+  Bind(wxEVT_MENU, &CFrame::OnRecordReadOnlyP3, this, IDM_RECORD_READ_ONLY_P3);
+  Bind(wxEVT_MENU, &CFrame::OnRecordReadOnlyP4, this, IDM_RECORD_READ_ONLY_P4);
+  Bind(wxEVT_MENU, &CFrame::OnMovieEditor, this, IDM_MOVIE_EDITOR);
   Bind(wxEVT_MENU, &CFrame::OnTASInput, this, IDM_TAS_INPUT);
   Bind(wxEVT_MENU, &CFrame::OnTogglePauseMovie, this, IDM_TOGGLE_PAUSE_MOVIE);
   Bind(wxEVT_MENU, &CFrame::OnShowLag, this, IDM_SHOW_LAG);

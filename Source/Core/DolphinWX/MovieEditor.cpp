@@ -135,7 +135,7 @@ void MovieEditor::repaint(wxIdleEvent&)
 
 void MovieEditor::update(int mode)
 {
-	bool loadedState = (mode == 1);
+	//bool loadedState = (mode == 1);
 	u64 totalbytes = Movie::GetTotalBytes();
 	if (totalbytes==0)
 	{
@@ -144,7 +144,7 @@ void MovieEditor::update(int mode)
 		Refresh();
 		return;
 	}
-	u8* input = Movie::GetInput();
+	std::vector<u8> input = Movie::GetInput();
 	u64 curbyte = Movie::GetCurrentByte();
 	int pads = Movie::GetControllerNumber();
 
@@ -236,4 +236,5 @@ void MovieEditor::OnEvent_Click(wxMouseEvent& event)
 		//if (controller >= 10000) { exit(0xBADC0DE); }
 	}
 	Refresh();
+  event.Skip();
 }

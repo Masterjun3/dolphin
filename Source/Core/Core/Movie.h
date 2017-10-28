@@ -132,7 +132,7 @@ u64 GetCurrentInputCount();
 u64 GetTotalInputCount();
 u64 GetCurrentLagCount();
 u64 GetTotalLagCount();
-u8* GetInput();
+std::vector<u8> GetInput();
 u64 GetCurrentByte();
 u64 GetTotalBytes();
 int GetControllerNumber();
@@ -180,9 +180,8 @@ std::string GetRTCDisplay();
 
 // Done this way to avoid mixing of core and gui code
 using GCManipFunction = std::function<void(GCPadStatus*, int)>;
-using WiiManipFunction =
-    std::function<void(u8*, WiimoteEmu::ReportFeatures, int, int, wiimote_key)>;
-using MovieEditorFunction = std:function<void(int)>;
+using WiiManipFunction = std::function<void(u8*, WiimoteEmu::ReportFeatures, int, int, wiimote_key)>;
+using MovieEditorFunction = std::function<void(int)>;
 
 void SetGCInputManip(GCManipFunction);
 void SetWiiInputManip(WiiManipFunction);

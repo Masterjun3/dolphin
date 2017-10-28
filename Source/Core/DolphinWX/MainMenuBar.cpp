@@ -147,8 +147,14 @@ wxMenu* MainMenuBar::CreateMovieMenu() const
   movie_menu->Append(IDM_PLAY_RECORD, _("P&lay Input Recording..."));
   movie_menu->Append(IDM_STOP_RECORD, _("Stop Playing/Recording Input"));
   movie_menu->Append(IDM_RECORD_EXPORT, _("Export Recording..."));
-  movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY, _("&Read-Only Mode"));
+  //movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY, _("&Read-Only Mode"));
+  movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY_P1, _("&Read-Only Mode"));
+  movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY_P2, _("&Read-Only Mode"));
+  movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY_P3, _("&Read-Only Mode"));
+  movie_menu->AppendCheckItem(IDM_RECORD_READ_ONLY_P4, _("&Read-Only Mode"));
   movie_menu->Append(IDM_TAS_INPUT, _("TAS Input"));
+  movie_menu->AppendSeparator();
+  movie_menu->Append(IDM_MOVIE_EDITOR, _("Movie Editor"));
   movie_menu->AppendSeparator();
   movie_menu->AppendCheckItem(IDM_TOGGLE_PAUSE_MOVIE, _("Pause at End of Movie"));
   movie_menu->Check(IDM_TOGGLE_PAUSE_MOVIE, config_instance.m_PauseMovie);
@@ -156,7 +162,11 @@ wxMenu* MainMenuBar::CreateMovieMenu() const
   movie_menu->Check(IDM_SHOW_LAG, config_instance.m_ShowLag);
   movie_menu->AppendCheckItem(IDM_SHOW_FRAME_COUNT, _("Show Frame Counter"));
   movie_menu->Check(IDM_SHOW_FRAME_COUNT, config_instance.m_ShowFrameCount);
-  movie_menu->Check(IDM_RECORD_READ_ONLY, true);
+  //movie_menu->Check(IDM_RECORD_READ_ONLY, true);
+  movie_menu->Check(IDM_RECORD_READ_ONLY_P1, true);
+  movie_menu->Check(IDM_RECORD_READ_ONLY_P2, true);
+  movie_menu->Check(IDM_RECORD_READ_ONLY_P3, true);
+  movie_menu->Check(IDM_RECORD_READ_ONLY_P4, true);
   movie_menu->AppendCheckItem(IDM_SHOW_INPUT_DISPLAY, _("Show Input Display"));
   movie_menu->Check(IDM_SHOW_INPUT_DISPLAY, config_instance.m_ShowInputDisplay);
   movie_menu->AppendCheckItem(IDM_SHOW_RTC_DISPLAY, _("Show System Clock"));

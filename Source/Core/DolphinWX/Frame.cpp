@@ -1132,13 +1132,13 @@ static int GetMenuIDFromHotkey(unsigned int key)
   return -1;
 }
 
+void MovieEditorFunction(int mode) {
+  if (main_frame)
+  {
+    main_frame->g_MovieEditor->update(mode);
+  }
 }
 
-void MovieEditorFunction(int mode) {
-	if (main_frame)
-	{
-		main_frame->g_MovieEditor->update(mode);
-	}
 void CFrame::OnKeyDown(wxKeyEvent& event)
 {
 #ifdef __APPLE__
