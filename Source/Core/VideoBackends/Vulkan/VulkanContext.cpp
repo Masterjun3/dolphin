@@ -3,6 +3,7 @@
 // Refer to the license.txt file included.
 
 #include <algorithm>
+#include <cstring>
 
 #include "Common/Assert.h"
 #include "Common/CommonFuncs.h"
@@ -82,10 +83,11 @@ bool VulkanContext::CheckValidationLayerAvailablility()
           }) != layer_list.end());
 }
 
-VkInstance VulkanContext::CreateVulkanInstance(bool enable_surface, bool enable_validation_layer)
+VkInstance VulkanContext::CreateVulkanInstance(bool enable_surface, bool enable_debug_report,
+                                               bool enable_validation_layer)
 {
   ExtensionList enabled_extensions;
-  if (!SelectInstanceExtensions(&enabled_extensions, enable_surface, enable_validation_layer))
+  if (!SelectInstanceExtensions(&enabled_extensions, enable_surface, enable_debug_report))
     return VK_NULL_HANDLE;
 
   VkApplicationInfo app_info = {};
@@ -127,7 +129,7 @@ VkInstance VulkanContext::CreateVulkanInstance(bool enable_surface, bool enable_
 }
 
 bool VulkanContext::SelectInstanceExtensions(ExtensionList* extension_list, bool enable_surface,
-                                             bool enable_validation_layer)
+                                             bool enable_debug_report)
 {
   u32 extension_count = 0;
   VkResult res = vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
@@ -192,8 +194,8 @@ bool VulkanContext::SelectInstanceExtensions(ExtensionList* extension_list, bool
 #endif
 
   // VK_EXT_debug_report
-  if (enable_validation_layer && !CheckForExtension(VK_EXT_DEBUG_REPORT_EXTENSION_NAME, true))
-    return false;
+  if (enable_debug_report && !CheckForExtension(VK_EXT_DEBUG_REPORT_EXTENSION_NAME, true))
+    WARN_LOG(VIDEO, "Vulkan: Debug report requested, but extension is not available.");
 
   return true;
 }
@@ -233,14 +235,22 @@ void VulkanContext::PopulateBackendInfo(VideoConfig* config)
   config->backend_info.bSupportsPaletteConversion = true;     // Assumed support.
   config->backend_info.bSupportsClipControl = true;           // Assumed support.
   config->backend_info.bSupportsMultithreading = true;        // Assumed support.
-  config->backend_info.bSupportsPostProcessing = false;       // No support yet.
-  config->backend_info.bSupportsDualSourceBlend = false;      // Dependent on features.
-  config->backend_info.bSupportsGeometryShaders = false;      // Dependent on features.
-  config->backend_info.bSupportsGSInstancing = false;         // Dependent on features.
-  config->backend_info.bSupportsBBox = false;                 // Dependent on features.
-  config->backend_info.bSupportsSSAA = false;                 // Dependent on features.
-  config->backend_info.bSupportsDepthClamp = false;           // Dependent on features.
-  config->backend_info.bSupportsReversedDepthRange = false;   // No support yet due to driver bugs.
+  config->backend_info.bSupportsComputeShaders = true;        // Assumed support.
+  config->backend_info.bSupportsGPUTextureDecoding = true;    // Assumed support.
+  config->backend_info.bSupportsBitfield = true;              // Assumed support.
+  config->backend_info.bSupportsDynamicSamplerIndexing = true;        // Assumed support.
+  config->backend_info.bSupportsInternalResolutionFrameDumps = true;  // Assumed support.
+  config->backend_info.bSupportsPostProcessing = true;                // Assumed support.
+  config->backend_info.bSupportsDualSourceBlend = false;              // Dependent on features.
+  config->backend_info.bSupportsGeometryShaders = false;              // Dependent on features.
+  config->backend_info.bSupportsGSInstancing = false;                 // Dependent on features.
+  config->backend_info.bSupportsBBox = false;                         // Dependent on features.
+  config->backend_info.bSupportsFragmentStoresAndAtomics = false;     // Dependent on features.
+  config->backend_info.bSupportsSSAA = false;                         // Dependent on features.
+  config->backend_info.bSupportsDepthClamp = false;                   // Dependent on features.
+  config->backend_info.bSupportsST3CTextures = false;                 // Dependent on features.
+  config->backend_info.bSupportsBPTCTextures = false;                 // Dependent on features.
+  config->backend_info.bSupportsReversedDepthRange = false;  // No support yet due to driver bugs.
 }
 
 void VulkanContext::PopulateBackendInfoAdapters(VideoConfig* config, const GPUList& gpu_list)
@@ -255,25 +265,38 @@ void VulkanContext::PopulateBackendInfoAdapters(VideoConfig* config, const GPULi
 }
 
 void VulkanContext::PopulateBackendInfoFeatures(VideoConfig* config, VkPhysicalDevice gpu,
+                                                const VkPhysicalDeviceProperties& properties,
                                                 const VkPhysicalDeviceFeatures& features)
 {
+  config->backend_info.MaxTextureSize = properties.limits.maxImageDimension2D;
   config->backend_info.bSupportsDualSourceBlend = (features.dualSrcBlend == VK_TRUE);
   config->backend_info.bSupportsGeometryShaders = (features.geometryShader == VK_TRUE);
   config->backend_info.bSupportsGSInstancing = (features.geometryShader == VK_TRUE);
-  config->backend_info.bSupportsBBox = (features.fragmentStoresAndAtomics == VK_TRUE);
+  config->backend_info.bSupportsBBox = config->backend_info.bSupportsFragmentStoresAndAtomics =
+      (features.fragmentStoresAndAtomics == VK_TRUE);
   config->backend_info.bSupportsSSAA = (features.sampleRateShading == VK_TRUE);
 
   // Disable geometry shader when shaderTessellationAndGeometryPointSize is not supported.
   // Seems this is needed for gl_Layer.
   if (!features.shaderTessellationAndGeometryPointSize)
+  {
     config->backend_info.bSupportsGeometryShaders = VK_FALSE;
-
-  // TODO: Investigate if there's a feature we can enable for GS instancing.
-  config->backend_info.bSupportsGSInstancing = VK_FALSE;
+    config->backend_info.bSupportsGSInstancing = VK_FALSE;
+  }
 
   // Depth clamping implies shaderClipDistance and depthClamp
   config->backend_info.bSupportsDepthClamp =
       (features.depthClamp == VK_TRUE && features.shaderClipDistance == VK_TRUE);
+
+  // textureCompressionBC implies BC1 through BC7, which is a superset of DXT1/3/5, which we need.
+  const bool supports_bc = features.textureCompressionBC == VK_TRUE;
+  config->backend_info.bSupportsST3CTextures = supports_bc;
+  config->backend_info.bSupportsBPTCTextures = supports_bc;
+
+  // Our usage of primitive restart appears to be broken on AMD's binary drivers.
+  // Seems to be fine on GCN Gen 1-2, unconfirmed on GCN Gen 3, causes driver resets on GCN Gen 4.
+  if (DriverDetails::HasBug(DriverDetails::BUG_PRIMITIVE_RESTART))
+    config->backend_info.bSupportsPrimitiveRestart = false;
 }
 
 void VulkanContext::PopulateBackendInfoMultisampleModes(
@@ -293,7 +316,7 @@ void VulkanContext::PopulateBackendInfoMultisampleModes(
   VkSampleCountFlags supported_sample_counts = properties.limits.framebufferColorSampleCounts &
                                                properties.limits.framebufferDepthSampleCounts &
                                                efb_color_properties.sampleCounts &
-                                               efb_color_properties.sampleCounts;
+                                               efb_depth_properties.sampleCounts;
 
   // No AA
   config->backend_info.AAModes.clear();
@@ -325,7 +348,8 @@ void VulkanContext::PopulateBackendInfoMultisampleModes(
 }
 
 std::unique_ptr<VulkanContext> VulkanContext::Create(VkInstance instance, VkPhysicalDevice gpu,
-                                                     VkSurfaceKHR surface, VideoConfig* config,
+                                                     VkSurfaceKHR surface,
+                                                     bool enable_debug_reports,
                                                      bool enable_validation_layer)
 {
   std::unique_ptr<VulkanContext> context = std::make_unique<VulkanContext>(instance, gpu);
@@ -337,8 +361,8 @@ std::unique_ptr<VulkanContext> VulkanContext::Create(VkInstance instance, VkPhys
                       static_cast<double>(context->m_device_properties.driverVersion),
                       DriverDetails::Family::UNKNOWN);
 
-  // Enable debug reports if validation layer is enabled.
-  if (enable_validation_layer)
+  // Enable debug reports if the "Host GPU" log category is enabled.
+  if (enable_debug_reports)
     context->EnableDebugReports();
 
   // Attempt to create the device.
@@ -351,14 +375,10 @@ std::unique_ptr<VulkanContext> VulkanContext::Create(VkInstance instance, VkPhys
     return nullptr;
   }
 
-  // Update video config with features.
-  PopulateBackendInfoFeatures(config, gpu, context->m_device_features);
-  PopulateBackendInfoMultisampleModes(config, gpu, context->m_device_properties);
   return context;
 }
 
-bool VulkanContext::SelectDeviceExtensions(ExtensionList* extension_list, bool enable_surface,
-                                           bool enable_validation_layer)
+bool VulkanContext::SelectDeviceExtensions(ExtensionList* extension_list, bool enable_surface)
 {
   u32 extension_count = 0;
   VkResult res =
@@ -404,9 +424,7 @@ bool VulkanContext::SelectDeviceExtensions(ExtensionList* extension_list, bool e
   };
 
   if (enable_surface && !CheckForExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME, true))
-  {
     return false;
-  }
 
   return true;
 }
@@ -451,6 +469,7 @@ bool VulkanContext::SelectDeviceFeatures()
   m_device_features.occlusionQueryPrecise = available_features.occlusionQueryPrecise;
   m_device_features.shaderClipDistance = available_features.shaderClipDistance;
   m_device_features.depthClamp = available_features.depthClamp;
+  m_device_features.textureCompressionBC = available_features.textureCompressionBC;
   return true;
 }
 
@@ -469,36 +488,41 @@ bool VulkanContext::CreateDevice(VkSurfaceKHR surface, bool enable_validation_la
                                            queue_family_properties.data());
   INFO_LOG(VIDEO, "%u vulkan queue families", queue_family_count);
 
-  // Find a graphics queue
-  // Currently we only use a single queue for both graphics and presenting.
-  // TODO: In the future we could do post-processing and presenting on a different queue.
+  // Find graphics and present queues.
   m_graphics_queue_family_index = queue_family_count;
+  m_present_queue_family_index = queue_family_count;
   for (uint32_t i = 0; i < queue_family_count; i++)
   {
-    if (queue_family_properties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+    VkBool32 graphics_supported = queue_family_properties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT;
+    if (graphics_supported)
     {
-      // Check that it can present to our surface from this queue
-      if (surface)
+      m_graphics_queue_family_index = i;
+      // Quit now, no need for a present queue.
+      if (!surface)
       {
-        VkBool32 present_supported;
-        VkResult res =
-            vkGetPhysicalDeviceSurfaceSupportKHR(m_physical_device, i, surface, &present_supported);
-        if (res != VK_SUCCESS)
-        {
-          LOG_VULKAN_ERROR(res, "vkGetPhysicalDeviceSurfaceSupportKHR failed: ");
-          return false;
-        }
-
-        if (present_supported)
-        {
-          m_graphics_queue_family_index = i;
-          break;
-        }
+        break;
       }
-      else
+    }
+
+    if (surface)
+    {
+      VkBool32 present_supported;
+      VkResult res =
+          vkGetPhysicalDeviceSurfaceSupportKHR(m_physical_device, i, surface, &present_supported);
+      if (res != VK_SUCCESS)
       {
-        // We don't need present, so any graphics queue will do.
-        m_graphics_queue_family_index = i;
+        LOG_VULKAN_ERROR(res, "vkGetPhysicalDeviceSurfaceSupportKHR failed: ");
+        return false;
+      }
+
+      if (present_supported)
+      {
+        m_present_queue_family_index = i;
+      }
+
+      // Prefer one queue family index that does both graphics and present.
+      if (graphics_supported && present_supported)
+      {
         break;
       }
     }
@@ -508,6 +532,11 @@ bool VulkanContext::CreateDevice(VkSurfaceKHR surface, bool enable_validation_la
     ERROR_LOG(VIDEO, "Vulkan: Failed to find an acceptable graphics queue.");
     return false;
   }
+  if (surface && m_present_queue_family_index == queue_family_count)
+  {
+    ERROR_LOG(VIDEO, "Vulkan: Failed to find an acceptable present queue.");
+    return false;
+  }
 
   VkDeviceCreateInfo device_info = {};
   device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -515,19 +544,35 @@ bool VulkanContext::CreateDevice(VkSurfaceKHR surface, bool enable_validation_la
   device_info.flags = 0;
 
   static constexpr float queue_priorities[] = {1.0f};
-  VkDeviceQueueCreateInfo queue_info = {};
-  queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queue_info.pNext = nullptr;
-  queue_info.flags = 0;
-  queue_info.queueFamilyIndex = m_graphics_queue_family_index;
-  queue_info.queueCount = 1;
-  queue_info.pQueuePriorities = queue_priorities;
+  VkDeviceQueueCreateInfo graphics_queue_info = {};
+  graphics_queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+  graphics_queue_info.pNext = nullptr;
+  graphics_queue_info.flags = 0;
+  graphics_queue_info.queueFamilyIndex = m_graphics_queue_family_index;
+  graphics_queue_info.queueCount = 1;
+  graphics_queue_info.pQueuePriorities = queue_priorities;
+
+  VkDeviceQueueCreateInfo present_queue_info = {};
+  present_queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+  present_queue_info.pNext = nullptr;
+  present_queue_info.flags = 0;
+  present_queue_info.queueFamilyIndex = m_present_queue_family_index;
+  present_queue_info.queueCount = 1;
+  present_queue_info.pQueuePriorities = queue_priorities;
+
+  std::array<VkDeviceQueueCreateInfo, 2> queue_infos = {{
+      graphics_queue_info, present_queue_info,
+  }};
+
   device_info.queueCreateInfoCount = 1;
-  device_info.pQueueCreateInfos = &queue_info;
+  if (m_graphics_queue_family_index != m_present_queue_family_index)
+  {
+    device_info.queueCreateInfoCount = 2;
+  }
+  device_info.pQueueCreateInfos = queue_infos.data();
 
   ExtensionList enabled_extensions;
-  if (!SelectDeviceExtensions(&enabled_extensions, (surface != VK_NULL_HANDLE),
-                              enable_validation_layer))
+  if (!SelectDeviceExtensions(&enabled_extensions, surface != VK_NULL_HANDLE))
     return false;
 
   device_info.enabledLayerCount = 0;
@@ -560,8 +605,12 @@ bool VulkanContext::CreateDevice(VkSurfaceKHR surface, bool enable_validation_la
   if (!LoadVulkanDeviceFunctions(m_device))
     return false;
 
-  // Grab the graphics queue (only one we're using at this point).
+  // Grab the graphics and present queues.
   vkGetDeviceQueue(m_device, m_graphics_queue_family_index, 0, &m_graphics_queue);
+  if (surface)
+  {
+    vkGetDeviceQueue(m_device, m_present_queue_family_index, 0, &m_present_queue);
+  }
   return true;
 }
 

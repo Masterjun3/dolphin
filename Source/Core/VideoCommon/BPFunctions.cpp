@@ -5,11 +5,10 @@
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
 
-#include "Core/ConfigManager.h"
-
 #include "VideoCommon/BPFunctions.h"
 #include "VideoCommon/BPMemory.h"
 #include "VideoCommon/RenderBase.h"
+#include "VideoCommon/RenderState.h"
 #include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
@@ -28,7 +27,9 @@ void FlushPipeline()
 
 void SetGenerationMode()
 {
-  g_renderer->SetGenerationMode();
+  RasterizationState state = {};
+  state.Generate(bpmem, g_vertex_manager->GetCurrentPrimitiveType());
+  g_renderer->SetRasterizationState(state);
 }
 
 void SetScissor()
@@ -69,25 +70,16 @@ void SetScissor()
 
 void SetDepthMode()
 {
-  g_renderer->SetDepthMode();
+  DepthState state = {};
+  state.Generate(bpmem);
+  g_renderer->SetDepthState(state);
 }
 
 void SetBlendMode()
 {
-  g_renderer->SetBlendMode(false);
-}
-void SetDitherMode()
-{
-  g_renderer->SetDitherMode();
-}
-void SetLogicOpMode()
-{
-  g_renderer->SetLogicOpMode();
-}
-
-void SetColorMask()
-{
-  g_renderer->SetColorMask();
+  BlendingState state = {};
+  state.Generate(bpmem);
+  g_renderer->SetBlendingState(state);
 }
 
 /* Explanation of the magic behind ClearScreen:
@@ -158,7 +150,7 @@ void OnPixelFormatChange()
   if (!g_ActiveConfig.bEFBEmulateFormatChanges)
     return;
 
-  auto old_format = Renderer::GetPrevPixelFormat();
+  auto old_format = g_renderer->GetPrevPixelFormat();
   auto new_format = bpmem.zcontrol.pixel_format;
 
   // no need to reinterpret pixel data in these cases
@@ -200,7 +192,7 @@ void OnPixelFormatChange()
 
   if (convtype == -1)
   {
-    ERROR_LOG(VIDEO, "Unhandled EFB format change: %d to %d\n", static_cast<int>(old_format),
+    ERROR_LOG(VIDEO, "Unhandled EFB format change: %d to %d", static_cast<int>(old_format),
               static_cast<int>(new_format));
     goto skip;
   }
@@ -211,7 +203,7 @@ skip:
   DEBUG_LOG(VIDEO, "pixelfmt: pixel=%d, zc=%d", static_cast<int>(new_format),
             static_cast<int>(bpmem.zcontrol.zformat));
 
-  Renderer::StorePixelFormat(new_format);
+  g_renderer->StorePixelFormat(new_format);
 }
 
 void SetInterlacingMode(const BPCmd& bp)

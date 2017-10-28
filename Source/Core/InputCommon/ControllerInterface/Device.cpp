@@ -7,12 +7,6 @@
 #include <string>
 #include <tuple>
 
-// For InputGateOn()
-// This is a really bad layering violation, but it's the cleanest
-// place I could find to put it.
-#include "Core/ConfigManager.h"
-#include "Core/Host.h"
-
 #include "InputCommon/ControllerInterface/Device.h"
 
 namespace ciface
@@ -65,16 +59,6 @@ Device::Output* Device::FindOutput(const std::string& name) const
   }
 
   return nullptr;
-}
-
-bool Device::Control::InputGateOn()
-{
-  if (SConfig::GetInstance().m_BackgroundInput)
-    return true;
-  else if (Host_RendererHasFocus() || Host_UIHasFocus())
-    return true;
-  else
-    return false;
 }
 
 //
@@ -136,9 +120,19 @@ bool DeviceQualifier::operator==(const Device* const dev) const
   return false;
 }
 
+bool DeviceQualifier::operator!=(const Device* const dev) const
+{
+  return !operator==(dev);
+}
+
 bool DeviceQualifier::operator==(const DeviceQualifier& devq) const
 {
   return std::tie(cid, name, source) == std::tie(devq.cid, devq.name, devq.source);
+}
+
+bool DeviceQualifier::operator!=(const DeviceQualifier& devq) const
+{
+  return !operator==(devq);
 }
 
 std::shared_ptr<Device> DeviceContainer::FindDevice(const DeviceQualifier& devq) const

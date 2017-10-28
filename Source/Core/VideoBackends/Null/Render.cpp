@@ -11,21 +11,19 @@
 namespace Null
 {
 // Init functions
-Renderer::Renderer()
+Renderer::Renderer() : ::Renderer(1, 1)
 {
-  g_Config.bRunning = true;
   UpdateActiveConfig();
 }
 
 Renderer::~Renderer()
 {
-  g_Config.bRunning = false;
   UpdateActiveConfig();
 }
 
 void Renderer::RenderText(const std::string& text, int left, int top, u32 color)
 {
-  NOTICE_LOG(VIDEO, "RenderText: %s\n", text.c_str());
+  NOTICE_LOG(VIDEO, "RenderText: %s", text.c_str());
 }
 
 TargetRectangle Renderer::ConvertEFBRectangle(const EFBRectangle& rc)

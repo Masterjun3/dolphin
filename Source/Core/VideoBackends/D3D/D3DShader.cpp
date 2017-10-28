@@ -18,7 +18,7 @@ namespace DX11
 namespace D3D
 {
 // bytecode->shader
-ID3D11VertexShader* CreateVertexShaderFromByteCode(const void* bytecode, unsigned int len)
+ID3D11VertexShader* CreateVertexShaderFromByteCode(const void* bytecode, size_t len)
 {
   ID3D11VertexShader* v_shader;
   HRESULT hr = D3D::device->CreateVertexShader(bytecode, len, nullptr, &v_shader);
@@ -44,7 +44,7 @@ bool CompileVertexShader(const std::string& code, D3DBlob** blob)
                            D3D::VertexShaderVersionString(), flags, 0, &shaderBuffer, &errorBuffer);
   if (errorBuffer)
   {
-    INFO_LOG(VIDEO, "Vertex shader compiler messages:\n%s\n",
+    INFO_LOG(VIDEO, "Vertex shader compiler messages:\n%s",
              (const char*)errorBuffer->GetBufferPointer());
   }
 
@@ -54,7 +54,7 @@ bool CompileVertexShader(const std::string& code, D3DBlob** blob)
     std::string filename = StringFromFormat("%sbad_vs_%04i.txt",
                                             File::GetUserPath(D_DUMP_IDX).c_str(), num_failures++);
     std::ofstream file;
-    OpenFStream(file, filename, std::ios_base::out);
+    File::OpenFStream(file, filename, std::ios_base::out);
     file << code;
     file.close();
 
@@ -73,7 +73,7 @@ bool CompileVertexShader(const std::string& code, D3DBlob** blob)
 }
 
 // bytecode->shader
-ID3D11GeometryShader* CreateGeometryShaderFromByteCode(const void* bytecode, unsigned int len)
+ID3D11GeometryShader* CreateGeometryShaderFromByteCode(const void* bytecode, size_t len)
 {
   ID3D11GeometryShader* g_shader;
   HRESULT hr = D3D::device->CreateGeometryShader(bytecode, len, nullptr, &g_shader);
@@ -102,7 +102,7 @@ bool CompileGeometryShader(const std::string& code, D3DBlob** blob,
 
   if (errorBuffer)
   {
-    INFO_LOG(VIDEO, "Geometry shader compiler messages:\n%s\n",
+    INFO_LOG(VIDEO, "Geometry shader compiler messages:\n%s",
              (const char*)errorBuffer->GetBufferPointer());
   }
 
@@ -112,7 +112,7 @@ bool CompileGeometryShader(const std::string& code, D3DBlob** blob,
     std::string filename = StringFromFormat("%sbad_gs_%04i.txt",
                                             File::GetUserPath(D_DUMP_IDX).c_str(), num_failures++);
     std::ofstream file;
-    OpenFStream(file, filename, std::ios_base::out);
+    File::OpenFStream(file, filename, std::ios_base::out);
     file << code;
     file.close();
 
@@ -131,7 +131,7 @@ bool CompileGeometryShader(const std::string& code, D3DBlob** blob,
 }
 
 // bytecode->shader
-ID3D11PixelShader* CreatePixelShaderFromByteCode(const void* bytecode, unsigned int len)
+ID3D11PixelShader* CreatePixelShaderFromByteCode(const void* bytecode, size_t len)
 {
   ID3D11PixelShader* p_shader;
   HRESULT hr = D3D::device->CreatePixelShader(bytecode, len, nullptr, &p_shader);
@@ -169,7 +169,7 @@ bool CompilePixelShader(const std::string& code, D3DBlob** blob, const D3D_SHADE
     std::string filename = StringFromFormat("%sbad_ps_%04i.txt",
                                             File::GetUserPath(D_DUMP_IDX).c_str(), num_failures++);
     std::ofstream file;
-    OpenFStream(file, filename, std::ios_base::out);
+    File::OpenFStream(file, filename, std::ios_base::out);
     file << code;
     file.close();
 

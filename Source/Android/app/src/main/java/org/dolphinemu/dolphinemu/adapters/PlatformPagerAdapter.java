@@ -1,26 +1,27 @@
 package org.dolphinemu.dolphinemu.adapters;
 
-
-import android.app.Fragment;
-import android.app.FragmentManager;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
-import android.support.v13.app.FragmentPagerAdapter;
+import android.support.v4.app.FragmentPagerAdapter;
+import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentManager;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.style.ImageSpan;
 
 import org.dolphinemu.dolphinemu.R;
+import org.dolphinemu.dolphinemu.ui.platform.Platform;
 import org.dolphinemu.dolphinemu.ui.platform.PlatformGamesFragment;
 
 public class PlatformPagerAdapter extends FragmentPagerAdapter
 {
 	private Context mContext;
 
-	private final static int[] TAB_ICONS = {
+	private final static int[] TAB_ICONS =
+	{
 			R.drawable.ic_gamecube,
 			R.drawable.ic_wii,
-			R.drawable.ic_folder// wiiware TODO Have an icon here.
+			R.drawable.ic_folder // WiiWare TODO Have an icon here.
 	};
 
 	public PlatformPagerAdapter(FragmentManager fm, Context context)
@@ -32,7 +33,7 @@ public class PlatformPagerAdapter extends FragmentPagerAdapter
 	@Override
 	public Fragment getItem(int position)
 	{
-		return PlatformGamesFragment.newInstance(position);
+		return PlatformGamesFragment.newInstance(Platform.fromPosition(position));
 	}
 
 	@Override

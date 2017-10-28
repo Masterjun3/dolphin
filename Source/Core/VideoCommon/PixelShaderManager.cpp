@@ -15,19 +15,20 @@
 
 bool PixelShaderManager::s_bFogRangeAdjustChanged;
 bool PixelShaderManager::s_bViewPortChanged;
+bool PixelShaderManager::s_bIndirectDirty;
+bool PixelShaderManager::s_bDestAlphaDirty;
 
 PixelShaderConstants PixelShaderManager::constants;
 bool PixelShaderManager::dirty;
 
 void PixelShaderManager::Init()
 {
-  memset(&constants, 0, sizeof(constants));
+  constants = {};
 
   // Init any intial constants which aren't zero when bpmem is zero.
   s_bFogRangeAdjustChanged = true;
   s_bViewPortChanged = false;
 
-  SetEfbScaleChanged();
   SetIndMatrixChanged(0);
   SetIndMatrixChanged(1);
   SetIndMatrixChanged(2);
@@ -41,6 +42,38 @@ void PixelShaderManager::Init()
   SetTexCoordChanged(6);
   SetTexCoordChanged(7);
 
+  // fixed Konstants
+  for (int component = 0; component < 4; component++)
+  {
+    constants.konst[0][component] = 255;  // 1
+    constants.konst[1][component] = 223;  // 7/8
+    constants.konst[2][component] = 191;  // 3/4
+    constants.konst[3][component] = 159;  // 5/8
+    constants.konst[4][component] = 128;  // 1/2
+    constants.konst[5][component] = 96;   // 3/8
+    constants.konst[6][component] = 64;   // 1/4
+    constants.konst[7][component] = 32;   // 1/8
+
+    // Invalid Konstants (reads as zero on hardware)
+    constants.konst[8][component] = 0;
+    constants.konst[9][component] = 0;
+    constants.konst[10][component] = 0;
+    constants.konst[11][component] = 0;
+
+    // Annoyingly, alpha reads zero values for the .rgb colors (offically
+    // defined as invalid)
+    // If it wasn't for this, we could just use one of the first 3 colunms
+    // instead of
+    // wasting an entire 4th column just for alpha.
+    if (component == 3)
+    {
+      constants.konst[12][component] = 0;
+      constants.konst[13][component] = 0;
+      constants.konst[14][component] = 0;
+      constants.konst[15][component] = 0;
+    }
+  }
+
   dirty = true;
 }
 
@@ -50,7 +83,7 @@ void PixelShaderManager::Dirty()
   // Any constants that can changed based on settings should be re-calculated
   s_bFogRangeAdjustChanged = true;
 
-  SetEfbScaleChanged();
+  SetEfbScaleChanged(g_renderer->EFBToScaledXf(1), g_renderer->EFBToScaledYf(1));
   SetFogParamChanged();
 
   dirty = true;
@@ -78,7 +111,8 @@ void PixelShaderManager::SetConstants()
       // so to simplify I use the hi coefficient as K in the shader taking 256 as the scale
       // TODO: Shouldn't this be EFBToScaledXf?
       constants.fogf[0][0] = ScreenSpaceCenter;
-      constants.fogf[0][1] = (float)Renderer::EFBToScaledX((int)(2.0f * xfmem.viewport.wd));
+      constants.fogf[0][1] =
+          static_cast<float>(g_renderer->EFBToScaledX(static_cast<int>(2.0f * xfmem.viewport.wd)));
       constants.fogf[0][2] = bpmem.fogRange.K[4].HI / 256.0f;
     }
     else
@@ -99,6 +133,59 @@ void PixelShaderManager::SetConstants()
     dirty = true;
     s_bViewPortChanged = false;
   }
+
+  if (s_bIndirectDirty)
+  {
+    for (int i = 0; i < 4; i++)
+      constants.pack1[i][3] = 0;
+
+    for (u32 i = 0; i < (bpmem.genMode.numtevstages + 1); ++i)
+    {
+      u32 stage = bpmem.tevind[i].bt;
+      if (stage < bpmem.genMode.numindstages)
+      {
+        // We set some extra bits so the ubershader can quickly check if these
+        // features are in use.
+        if (bpmem.tevind[i].IsActive())
+          constants.pack1[stage][3] =
+              bpmem.tevindref.getTexCoord(stage) | bpmem.tevindref.getTexMap(stage) << 8 | 1 << 16;
+        // Note: a tevind of zero just happens to be a passthrough, so no need
+        // to set an extra bit.
+        constants.pack1[i][2] =
+            bpmem.tevind[i].hex;  // TODO: This match shadergen, but videosw will
+                                  // always wrap.
+
+        // The ubershader uses tevind != 0 as a condition whether to calculate texcoords,
+        // even when texture is disabled, instead of the stage < bpmem.genMode.numindstages.
+        // We set an unused bit here to indicate that the stage is active, even if it
+        // is just a pass-through.
+        constants.pack1[i][2] |= 0x80000000;
+      }
+      else
+      {
+        constants.pack1[i][2] = 0;
+      }
+    }
+
+    dirty = true;
+    s_bIndirectDirty = false;
+  }
+
+  if (s_bDestAlphaDirty)
+  {
+    // Destination alpha is only enabled if alpha writes are enabled. Force entire uniform to zero
+    // when disabled.
+    u32 dstalpha = bpmem.blendmode.alphaupdate && bpmem.dstalpha.enable &&
+                           bpmem.zcontrol.pixel_format == PEControl::RGBA6_Z24 ?
+                       bpmem.dstalpha.hex :
+                       0;
+
+    if (constants.dstalpha != dstalpha)
+    {
+      constants.dstalpha = dstalpha;
+      dirty = true;
+    }
+  }
 }
 
 void PixelShaderManager::SetTevColor(int index, int component, s32 value)
@@ -107,7 +194,7 @@ void PixelShaderManager::SetTevColor(int index, int component, s32 value)
   c[component] = value;
   dirty = true;
 
-  PRIM_LOG("tev color%d: %d %d %d %d\n", index, c[0], c[1], c[2], c[3]);
+  PRIM_LOG("tev color%d: %d %d %d %d", index, c[0], c[1], c[2], c[3]);
 }
 
 void PixelShaderManager::SetTevKonstColor(int index, int component, s32 value)
@@ -116,20 +203,78 @@ void PixelShaderManager::SetTevKonstColor(int index, int component, s32 value)
   c[component] = value;
   dirty = true;
 
-  PRIM_LOG("tev konst color%d: %d %d %d %d\n", index, c[0], c[1], c[2], c[3]);
+  // Konst for ubershaders. We build the whole array on cpu so the gpu can do a single indirect
+  // access.
+  if (component != 3)  // Alpha doesn't included in the .rgb konsts
+    constants.konst[index + 12][component] = value;
+
+  // .rrrr .gggg .bbbb .aaaa konsts
+  constants.konst[index + 16 + component * 4][0] = value;
+  constants.konst[index + 16 + component * 4][1] = value;
+  constants.konst[index + 16 + component * 4][2] = value;
+  constants.konst[index + 16 + component * 4][3] = value;
+
+  PRIM_LOG("tev konst color%d: %d %d %d %d", index, c[0], c[1], c[2], c[3]);
+}
+
+void PixelShaderManager::SetTevOrder(int index, u32 order)
+{
+  if (constants.pack2[index][0] != order)
+  {
+    constants.pack2[index][0] = order;
+    dirty = true;
+  }
+}
+
+void PixelShaderManager::SetTevKSel(int index, u32 ksel)
+{
+  if (constants.pack2[index][1] != ksel)
+  {
+    constants.pack2[index][1] = ksel;
+    dirty = true;
+  }
+}
+
+void PixelShaderManager::SetTevCombiner(int index, int alpha, u32 combiner)
+{
+  if (constants.pack1[index][alpha] != combiner)
+  {
+    constants.pack1[index][alpha] = combiner;
+    dirty = true;
+  }
+}
+
+void PixelShaderManager::SetTevIndirectChanged()
+{
+  s_bIndirectDirty = true;
 }
 
 void PixelShaderManager::SetAlpha()
 {
   constants.alpha[0] = bpmem.alpha_test.ref0;
   constants.alpha[1] = bpmem.alpha_test.ref1;
+  constants.alpha[3] = static_cast<s32>(bpmem.dstalpha.alpha);
   dirty = true;
 }
 
-void PixelShaderManager::SetDestAlpha()
+void PixelShaderManager::SetAlphaTestChanged()
 {
-  constants.alpha[3] = bpmem.dstalpha.alpha;
-  dirty = true;
+  // Force alphaTest Uniform to zero if it will always pass.
+  // (set an extra bit to distinguish from "never && never")
+  // TODO: we could optimize this further and check the actual constants,
+  // i.e. "a <= 0" and "a >= 255" will always pass.
+  u32 alpha_test =
+      bpmem.alpha_test.TestResult() != AlphaTest::PASS ? bpmem.alpha_test.hex | 1 << 31 : 0;
+  if (constants.alphaTest != alpha_test)
+  {
+    constants.alphaTest = alpha_test;
+    dirty = true;
+  }
+}
+
+void PixelShaderManager::SetDestAlphaChanged()
+{
+  s_bDestAlphaDirty = true;
 }
 
 void PixelShaderManager::SetTexDims(int texmapid, u32 width, u32 height)
@@ -159,10 +304,10 @@ void PixelShaderManager::SetViewportChanged()
       true;  // TODO: Shouldn't be necessary with an accurate fog range adjust implementation
 }
 
-void PixelShaderManager::SetEfbScaleChanged()
+void PixelShaderManager::SetEfbScaleChanged(float scalex, float scaley)
 {
-  constants.efbscale[0] = 1.0f / Renderer::EFBToScaledXf(1);
-  constants.efbscale[1] = 1.0f / Renderer::EFBToScaledYf(1);
+  constants.efbscale[0] = 1.0f / scalex;
+  constants.efbscale[1] = 1.0f / scaley;
   dirty = true;
 }
 
@@ -201,7 +346,7 @@ void PixelShaderManager::SetIndMatrixChanged(int matrixidx)
   constants.indtexmtx[2 * matrixidx + 1][3] = 17 - scale;
   dirty = true;
 
-  PRIM_LOG("indmtx%d: scale=%d, mat=(%d %d %d; %d %d %d)\n", matrixidx, scale,
+  PRIM_LOG("indmtx%d: scale=%d, mat=(%d %d %d; %d %d %d)", matrixidx, scale,
            bpmem.indmtx[matrixidx].col0.ma, bpmem.indmtx[matrixidx].col1.mc,
            bpmem.indmtx[matrixidx].col2.me, bpmem.indmtx[matrixidx].col0.mb,
            bpmem.indmtx[matrixidx].col1.md, bpmem.indmtx[matrixidx].col2.mf);
@@ -235,6 +380,12 @@ void PixelShaderManager::SetZTextureTypeChanged()
   dirty = true;
 }
 
+void PixelShaderManager::SetZTextureOpChanged()
+{
+  constants.ztex_op = bpmem.ztex2.op;
+  dirty = true;
+}
+
 void PixelShaderManager::SetTexCoordChanged(u8 texmapid)
 {
   TCoordInfo& tc = bpmem.texcoords[texmapid];
@@ -262,6 +413,7 @@ void PixelShaderManager::SetFogParamChanged()
     constants.fogi[1] = bpmem.fog.b_magnitude;
     constants.fogf[1][2] = bpmem.fog.c_proj_fsel.GetC();
     constants.fogi[3] = bpmem.fog.b_shift;
+    constants.fogParam3 = bpmem.fog.c_proj_fsel.hex;
   }
   else
   {
@@ -269,6 +421,7 @@ void PixelShaderManager::SetFogParamChanged()
     constants.fogi[1] = 1;
     constants.fogf[1][2] = 0.f;
     constants.fogi[3] = 1;
+    constants.fogParam3 = 0;
   }
   dirty = true;
 }
@@ -279,12 +432,68 @@ void PixelShaderManager::SetFogRangeAdjustChanged()
     return;
 
   s_bFogRangeAdjustChanged = true;
+
+  if (constants.fogRangeBase != bpmem.fogRange.Base.hex)
+  {
+    constants.fogRangeBase = bpmem.fogRange.Base.hex;
+    dirty = true;
+  }
+}
+
+void PixelShaderManager::SetGenModeChanged()
+{
+  constants.genmode = bpmem.genMode.hex;
+  s_bIndirectDirty = true;
+  dirty = true;
+}
+
+void PixelShaderManager::SetZModeControl()
+{
+  u32 late_ztest = bpmem.UseLateDepthTest();
+  u32 rgba6_format =
+      (bpmem.zcontrol.pixel_format == PEControl::RGBA6_Z24 && !g_ActiveConfig.bForceTrueColor) ? 1 :
+                                                                                                 0;
+  u32 dither = rgba6_format && bpmem.blendmode.dither;
+  if (constants.late_ztest != late_ztest || constants.rgba6_format != rgba6_format ||
+      constants.dither != dither)
+  {
+    constants.late_ztest = late_ztest;
+    constants.rgba6_format = rgba6_format;
+    constants.dither = dither;
+    dirty = true;
+  }
+  s_bDestAlphaDirty = true;
+}
+
+void PixelShaderManager::SetBlendModeChanged()
+{
+  u32 dither = constants.rgba6_format && bpmem.blendmode.dither;
+  if (constants.dither != dither)
+  {
+    constants.dither = dither;
+    dirty = true;
+  }
+  s_bDestAlphaDirty = true;
+}
+
+void PixelShaderManager::SetBoundingBoxActive(bool active)
+{
+  const bool enable =
+      active && g_ActiveConfig.bBBoxEnable && g_ActiveConfig.BBoxUseFragmentShaderImplementation();
+
+  if (enable == (constants.bounding_box != 0))
+    return;
+
+  constants.bounding_box = active;
+  dirty = true;
 }
 
 void PixelShaderManager::DoState(PointerWrap& p)
 {
   p.Do(s_bFogRangeAdjustChanged);
   p.Do(s_bViewPortChanged);
+  p.Do(s_bIndirectDirty);
+  p.Do(s_bDestAlphaDirty);
 
   p.Do(constants);
 

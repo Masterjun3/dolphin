@@ -6,43 +6,49 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "Common/CommonTypes.h"
+#include "Common/Lazy.h"
+#include "DiscIO/Filesystem.h"
 #include "DiscIO/Volume.h"
-
-// --- this volume type is used for GC disc images ---
 
 namespace DiscIO
 {
+class BlobReader;
 enum class BlobType;
 enum class Country;
+class FileSystem;
 enum class Language;
+enum class Region;
 enum class Platform;
 
-class CVolumeGC : public IVolume
+class VolumeGC : public Volume
 {
 public:
-  CVolumeGC(std::unique_ptr<IBlobReader> reader);
-  ~CVolumeGC();
-  bool Read(u64 _Offset, u64 _Length, u8* _pBuffer, bool decrypt = false) const override;
-  std::string GetUniqueID() const override;
-  std::string GetMakerID() const override;
-  u16 GetRevision() const override;
-  std::string GetInternalName() const override;
+  VolumeGC(std::unique_ptr<BlobReader> reader);
+  ~VolumeGC();
+  bool Read(u64 _Offset, u64 _Length, u8* _pBuffer,
+            const Partition& partition = PARTITION_NONE) const override;
+  const FileSystem* GetFileSystem(const Partition& partition = PARTITION_NONE) const override;
+  std::string GetGameID(const Partition& partition = PARTITION_NONE) const override;
+  std::string GetMakerID(const Partition& partition = PARTITION_NONE) const override;
+  std::optional<u16> GetRevision(const Partition& partition = PARTITION_NONE) const override;
+  std::string GetInternalName(const Partition& partition = PARTITION_NONE) const override;
   std::map<Language, std::string> GetShortNames() const override;
   std::map<Language, std::string> GetLongNames() const override;
   std::map<Language, std::string> GetShortMakers() const override;
   std::map<Language, std::string> GetLongMakers() const override;
   std::map<Language, std::string> GetDescriptions() const override;
   std::vector<u32> GetBanner(int* width, int* height) const override;
-  u64 GetFSTSize() const override;
-  std::string GetApploaderDate() const override;
-  u8 GetDiscNumber() const override;
+  std::string GetApploaderDate(const Partition& partition = PARTITION_NONE) const override;
+  std::optional<u8> GetDiscNumber(const Partition& partition = PARTITION_NONE) const override;
 
   Platform GetVolumeType() const override;
-  Country GetCountry() const override;
+  Region GetRegion() const override;
+  Country GetCountry(const Partition& partition = PARTITION_NONE) const override;
   BlobType GetBlobType() const override;
   u64 GetSize() const override;
   u64 GetRawSize() const override;
@@ -71,25 +77,33 @@ private:
                                                     // (only one for BNR1 type)
   };
 
-  void LoadBannerFile() const;
-  void ExtractBannerInformation(const GCBanner& banner_file, bool is_bnr1) const;
+  struct ConvertedGCBanner
+  {
+    ConvertedGCBanner();
+    ~ConvertedGCBanner();
+
+    std::map<Language, std::string> short_names;
+    std::map<Language, std::string> long_names;
+    std::map<Language, std::string> short_makers;
+    std::map<Language, std::string> long_makers;
+    std::map<Language, std::string> descriptions;
+
+    std::vector<u32> image_buffer;
+    int image_height = 0;
+    int image_width = 0;
+  };
+
+  ConvertedGCBanner LoadBannerFile() const;
+  ConvertedGCBanner ExtractBannerInformation(const GCBanner& banner_file, bool is_bnr1) const;
 
   static const size_t BNR1_SIZE = sizeof(GCBanner) - sizeof(GCBannerInformation) * 5;
   static const size_t BNR2_SIZE = sizeof(GCBanner);
 
-  mutable std::map<Language, std::string> m_short_names;
+  Common::Lazy<ConvertedGCBanner> m_converted_banner;
 
-  mutable std::map<Language, std::string> m_long_names;
-  mutable std::map<Language, std::string> m_short_makers;
-  mutable std::map<Language, std::string> m_long_makers;
-  mutable std::map<Language, std::string> m_descriptions;
+  Common::Lazy<std::unique_ptr<FileSystem>> m_file_system;
 
-  mutable bool m_banner_loaded = false;
-  mutable std::vector<u32> m_image_buffer;
-  mutable int m_image_height = 0;
-  mutable int m_image_width = 0;
-
-  std::unique_ptr<IBlobReader> m_pReader;
+  std::unique_ptr<BlobReader> m_pReader;
 };
 
 }  // namespace

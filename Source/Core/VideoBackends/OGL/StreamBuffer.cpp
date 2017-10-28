@@ -2,11 +2,14 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "VideoBackends/OGL/StreamBuffer.h"
+
+#include "Common/Align.h"
+#include "Common/CommonFuncs.h"
 #include "Common/GL/GLUtil.h"
 #include "Common/MemoryUtil.h"
 
 #include "VideoBackends/OGL/Render.h"
-#include "VideoBackends/OGL/StreamBuffer.h"
 
 #include "VideoCommon/DriverDetails.h"
 #include "VideoCommon/OnScreenDisplay.h"
@@ -94,7 +97,13 @@ void StreamBuffer::AllocMemory(u32 size)
     glClientWaitSync(m_fences[i], GL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED);
     glDeleteSync(m_fences[i]);
   }
-  m_free_iterator = m_iterator + size;
+
+  // If we allocate a large amount of memory (A), commit a smaller amount, then allocate memory
+  // smaller than allocation A, we will have already waited for these fences in A, but not used
+  // the space. In this case, don't set m_free_iterator to a position before that which we know
+  // is safe to use, which would result in waiting on the same fence(s) next time.
+  if ((m_iterator + size) > m_free_iterator)
+    m_free_iterator = m_iterator + size;
 
   // if buffer is full
   if (m_iterator + size >= m_size)
@@ -261,11 +270,11 @@ public:
   PinnedMemory(u32 type, u32 size) : StreamBuffer(type, size)
   {
     CreateFences();
-    m_pointer = static_cast<u8*>(
-        Common::AllocateAlignedMemory(ROUND_UP(m_size, ALIGN_PINNED_MEMORY), ALIGN_PINNED_MEMORY));
+    m_pointer = static_cast<u8*>(Common::AllocateAlignedMemory(
+        Common::AlignUp(m_size, ALIGN_PINNED_MEMORY), ALIGN_PINNED_MEMORY));
     glBindBuffer(GL_EXTERNAL_VIRTUAL_MEMORY_BUFFER_AMD, m_buffer);
-    glBufferData(GL_EXTERNAL_VIRTUAL_MEMORY_BUFFER_AMD, ROUND_UP(m_size, ALIGN_PINNED_MEMORY),
-                 m_pointer, GL_STREAM_COPY);
+    glBufferData(GL_EXTERNAL_VIRTUAL_MEMORY_BUFFER_AMD,
+                 Common::AlignUp(m_size, ALIGN_PINNED_MEMORY), m_pointer, GL_STREAM_COPY);
     glBindBuffer(GL_EXTERNAL_VIRTUAL_MEMORY_BUFFER_AMD, 0);
     glBindBuffer(m_buffertype, m_buffer);
   }
@@ -341,7 +350,7 @@ std::unique_ptr<StreamBuffer> StreamBuffer::Create(u32 type, u32 size)
   // without basevertex support, only streaming methods whith uploads everything to zero works fine:
   if (!g_ogl_config.bSupportsGLBaseVertex)
   {
-    if (!DriverDetails::HasBug(DriverDetails::BUG_BROKENBUFFERSTREAM))
+    if (!DriverDetails::HasBug(DriverDetails::BUG_BROKEN_BUFFER_STREAM))
       return std::make_unique<BufferSubData>(type, size);
 
     // BufferData is by far the worst way, only use it if needed
@@ -353,21 +362,20 @@ std::unique_ptr<StreamBuffer> StreamBuffer::Create(u32 type, u32 size)
   {
     // pinned memory is much faster than buffer storage on AMD cards
     if (g_ogl_config.bSupportsGLPinnedMemory &&
-        !(DriverDetails::HasBug(DriverDetails::BUG_BROKENPINNEDMEMORY) &&
-          type == GL_ELEMENT_ARRAY_BUFFER))
+        !(DriverDetails::HasBug(DriverDetails::BUG_BROKEN_PINNED_MEMORY)))
       return std::make_unique<PinnedMemory>(type, size);
 
     // buffer storage works well in most situations
-    bool coherent = DriverDetails::HasBug(DriverDetails::BUG_BROKENEXPLICITFLUSH);
+    bool coherent = DriverDetails::HasBug(DriverDetails::BUG_BROKEN_EXPLICIT_FLUSH);
     if (g_ogl_config.bSupportsGLBufferStorage &&
-        !(DriverDetails::HasBug(DriverDetails::BUG_BROKENBUFFERSTORAGE) &&
+        !(DriverDetails::HasBug(DriverDetails::BUG_BROKEN_BUFFER_STORAGE) &&
           type == GL_ARRAY_BUFFER) &&
-        !(DriverDetails::HasBug(DriverDetails::BUG_INTELBROKENBUFFERSTORAGE) &&
+        !(DriverDetails::HasBug(DriverDetails::BUG_INTEL_BROKEN_BUFFER_STORAGE) &&
           type == GL_ELEMENT_ARRAY_BUFFER))
       return std::make_unique<BufferStorage>(type, size, coherent);
 
     // don't fall back to MapAnd* for Nvidia drivers
-    if (DriverDetails::HasBug(DriverDetails::BUG_BROKENUNSYNCMAPPING))
+    if (DriverDetails::HasBug(DriverDetails::BUG_BROKEN_UNSYNC_MAPPING))
       return std::make_unique<BufferSubData>(type, size);
 
     // mapping fallback

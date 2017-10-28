@@ -324,7 +324,7 @@ inline OpArg ImmPtr(const void* imm)
   return Imm64((u64)imm);
 }
 
-inline u32 PtrOffset(const void* ptr, const void* base)
+inline u32 PtrOffset(const void* ptr, const void* base = nullptr)
 {
   s64 distance = (s64)ptr - (s64)base;
   if (distance >= 0x80000000LL || distance < -0x80000000LL)
@@ -412,6 +412,7 @@ public:
   virtual ~XEmitter() {}
   void SetCodePtr(u8* ptr);
   void ReserveCodeSpace(int bytes);
+  const u8* AlignCodeTo(size_t alignment);
   const u8* AlignCode4();
   const u8* AlignCode16();
   const u8* AlignCodePage();
@@ -467,6 +468,7 @@ public:
 #undef CALL
 #endif
   void CALL(const void* fnptr);
+  FixupBranch CALL();
   void CALLptr(OpArg arg);
 
   FixupBranch J_CC(CCFlags conditionCode, bool force5bytes = false);

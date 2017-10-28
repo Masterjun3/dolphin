@@ -2,15 +2,18 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include <cstring>
-#include <memory>
-
-#include "Common/CommonTypes.h"
-#include "Common/FileUtil.h"
-#include "Common/PcapFile.h"
-
 #include "Core/DSP/DSPCaptureLogger.h"
 
+#include <cstring>
+#include <memory>
+#include <string>
+
+#include "Common/CommonTypes.h"
+#include "Common/File.h"
+#include "Common/PcapFile.h"
+
+namespace DSP
+{
 // Definition of the packet structures stored in PCAP capture files.
 
 const u8 IFX_ACCESS_PACKET_MAGIC = 0;
@@ -77,3 +80,4 @@ void PCAPDSPCaptureLogger::LogDMA(u16 control, u32 gc_address, u16 dsp_address, 
 
   m_pcap->AddPacket(buffer, sizeof(DMAPacket) + length);
 }
+}  // namespace DSP

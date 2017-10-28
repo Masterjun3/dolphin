@@ -14,19 +14,23 @@
 #include "Common/Event.h"
 #include "Common/FifoQueue.h"
 #include "Common/Flag.h"
-#include "Common/NonCopyable.h"
 #include "Core/HW/Wiimote.h"
-#include "Core/HW/WiimoteReal/WiimoteRealBase.h"
+#include "Core/HW/WiimoteCommon/WiimoteConstants.h"
+#include "Core/HW/WiimoteCommon/WiimoteHid.h"
+#include "Core/HW/WiimoteCommon/WiimoteReport.h"
 
 class PointerWrap;
 
-typedef std::vector<u8> Report;
-
 namespace WiimoteReal
 {
-class Wiimote : NonCopyable
+class Wiimote
 {
 public:
+  Wiimote(const Wiimote&) = delete;
+  Wiimote& operator=(const Wiimote&) = delete;
+  Wiimote(Wiimote&&) = default;
+  Wiimote& operator=(Wiimote&&) = default;
+
   virtual ~Wiimote() {}
   // This needs to be called in derived destructors!
   void Shutdown();
@@ -36,9 +40,9 @@ public:
   void ControlChannel(const u16 channel, const void* const data, const u32 size);
   void InterruptChannel(const u16 channel, const void* const data, const u32 size);
   void Update();
-  void ConnectOnInput();
+  bool CheckForButtonPress();
 
-  const Report& ProcessReadQueue();
+  Report& ProcessReadQueue();
 
   void Read();
   bool Write();
@@ -83,7 +87,6 @@ protected:
   int m_index;
   Report m_last_input_report;
   u16 m_channel;
-  u8 m_last_connect_request_counter;
   // If true, the Wiimote will be really disconnected when it is disconnected by Dolphin.
   // In any other case, data reporting is not paused to allow reconnecting on any button press.
   // This is not enabled on all platforms as connecting a Wiimote can be a pain on some platforms.
@@ -138,30 +141,29 @@ public:
   void StopThread();
   void SetScanMode(WiimoteScanMode scan_mode);
 
-  void AddScannerBackend(std::unique_ptr<WiimoteScannerBackend> backend);
   bool IsReady() const;
 
 private:
   void ThreadFunc();
+
+  std::vector<std::unique_ptr<WiimoteScannerBackend>> m_backends;
+  mutable std::mutex m_backends_mutex;
+
   std::thread m_scan_thread;
   Common::Flag m_scan_thread_running;
-
   Common::Event m_scan_mode_changed_event;
   std::atomic<WiimoteScanMode> m_scan_mode{WiimoteScanMode::DO_NOT_SCAN};
-
-  std::vector<std::unique_ptr<WiimoteScannerBackend>> m_scanner_backends;
 };
 
 extern std::mutex g_wiimotes_mutex;
 extern WiimoteScanner g_wiimote_scanner;
 extern Wiimote* g_wiimotes[MAX_BBMOTES];
 
-void InterruptChannel(int _WiimoteNumber, u16 _channelID, const void* _pData, u32 _Size);
-void ControlChannel(int _WiimoteNumber, u16 _channelID, const void* _pData, u32 _Size);
-void Update(int _WiimoteNumber);
-void ConnectOnInput(int _WiimoteNumber);
+void InterruptChannel(int wiimote_number, u16 channel_id, const void* data, u32 size);
+void ControlChannel(int wiimote_number, u16 channel_id, const void* data, u32 size);
+void Update(int wiimote_number);
+bool CheckForButtonPress(int wiimote_number);
 
-void StateChange(EMUSTATE_CHANGE newState);
 void ChangeWiimoteSource(unsigned int index, int source);
 
 bool IsValidDeviceName(const std::string& name);

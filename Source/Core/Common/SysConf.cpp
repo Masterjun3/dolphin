@@ -2,446 +2,302 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include <cinttypes>
-#include <cstdio>
-#include <cstring>
-#include <string>
-#include <vector>
-
-#include "Common/CommonFuncs.h"
-#include "Common/CommonPaths.h"
-#include "Common/CommonTypes.h"
-#include "Common/FileUtil.h"
-#include "Common/Logging/Log.h"
 #include "Common/SysConf.h"
 
-#include "Core/Movie.h"
+#include <algorithm>
+#include <array>
+#include <cstdio>
 
-SysConf::SysConf()
+#include "Common/CommonPaths.h"
+#include "Common/CommonTypes.h"
+#include "Common/File.h"
+#include "Common/FileUtil.h"
+#include "Common/Logging/Log.h"
+#include "Common/Swap.h"
+
+constexpr size_t SYSCONF_SIZE = 0x4000;
+
+static size_t GetNonArrayEntrySize(SysConf::Entry::Type type)
 {
-  UpdateLocation();
+  switch (type)
+  {
+  case SysConf::Entry::Type::Byte:
+  case SysConf::Entry::Type::ByteBool:
+    return 1;
+  case SysConf::Entry::Type::Short:
+    return 2;
+  case SysConf::Entry::Type::Long:
+    return 4;
+  case SysConf::Entry::Type::LongLong:
+    return 8;
+  default:
+    _assert_(false);
+    return 0;
+  }
+}
+SysConf::SysConf(const Common::FromWhichRoot root_type)
+{
+  m_file_name = Common::RootUserPath(root_type) + DIR_SEP WII_SYSCONF_DIR DIR_SEP WII_SYSCONF;
+  Load();
 }
 
 SysConf::~SysConf()
 {
-  if (!m_IsValid)
-    return;
-
   Save();
-  Clear();
 }
 
 void SysConf::Clear()
 {
-  for (auto i = m_Entries.begin(); i < m_Entries.end() - 1; ++i)
-    delete[] i->data;
-
-  m_Entries.clear();
+  m_entries.clear();
 }
 
-bool SysConf::LoadFromFile(const std::string& filename)
+void SysConf::Load()
 {
-  if (m_IsValid)
-    Clear();
-  m_IsValid = false;
+  Clear();
 
-  // Basic check
-  if (!File::Exists(filename))
+  if (File::GetSize(m_file_name) != SYSCONF_SIZE || !LoadFromFile(m_file_name))
   {
-    File::CreateFullPath(filename);
-    GenerateSysConf();
-    return true;
+    WARN_LOG(CORE, "No valid SYSCONF detected. Creating a new one.");
+    InsertDefaultEntries();
   }
-
-  u64 size = File::GetSize(filename);
-  if (size != SYSCONF_SIZE)
-  {
-    if (AskYesNoT("Your SYSCONF file is the wrong size.\nIt should be 0x%04x (but is 0x%04" PRIx64
-                  ")\nDo you want to generate a new one?",
-                  SYSCONF_SIZE, size))
-    {
-      GenerateSysConf();
-      return true;
-    }
-    else
-    {
-      return false;
-    }
-  }
-
-  File::IOFile f(filename, "rb");
-  if (f.IsOpen())
-  {
-    if (LoadFromFileInternal(f.ReleaseHandle()))
-    {
-      m_Filename = filename;
-      m_IsValid = true;
-      // Apply Wii settings from normal SYSCONF on Movie recording/playback
-      if (Movie::IsRecordingInput() || Movie::IsPlayingInput())
-      {
-        SetData("IPL.LNG", Movie::GetLanguage());
-        SetData("IPL.E60", Movie::IsPAL60());
-        SetData("IPL.PGS", Movie::IsProgressive());
-      }
-      return true;
-    }
-  }
-
-  return false;
 }
 
-bool SysConf::LoadFromFileInternal(FILE* fh)
+bool SysConf::LoadFromFile(const std::string& file_name)
 {
-  File::IOFile f(fh);
-  // Fill in infos
-  SSysConfHeader s_Header;
-  f.ReadArray(s_Header.version, 4);
-  f.ReadArray(&s_Header.numEntries, 1);
-  s_Header.numEntries = Common::swap16(s_Header.numEntries) + 1;
+  File::IOFile file(file_name, "rb");
+  file.Seek(4, SEEK_SET);
+  u16 number_of_entries;
+  file.ReadBytes(&number_of_entries, sizeof(number_of_entries));
+  number_of_entries = Common::swap16(number_of_entries);
 
-  for (u16 index = 0; index < s_Header.numEntries; index++)
+  std::vector<u16> offsets(number_of_entries);
+  for (u16& offset : offsets)
   {
-    SSysConfEntry tmpEntry;
-    f.ReadArray(&tmpEntry.offset, 1);
-    tmpEntry.offset = Common::swap16(tmpEntry.offset);
-    m_Entries.push_back(tmpEntry);
+    file.ReadBytes(&offset, sizeof(offset));
+    offset = Common::swap16(offset);
   }
 
-  // Last offset is an invalid entry. We ignore it throughout this class
-  for (auto i = m_Entries.begin(); i < m_Entries.end() - 1; ++i)
+  for (const u16 offset : offsets)
   {
-    SSysConfEntry& curEntry = *i;
-    f.Seek(curEntry.offset, SEEK_SET);
+    file.Seek(offset, SEEK_SET);
 
+    // Metadata
     u8 description = 0;
-    f.ReadArray(&description, 1);
-    // Data type
-    curEntry.type = (SysconfType)((description & 0xe0) >> 5);
-    // Length of name in bytes - 1
-    curEntry.nameLength = (description & 0x1f) + 1;
-    // Name
-    f.ReadArray(curEntry.name, curEntry.nameLength);
-    curEntry.name[curEntry.nameLength] = '\0';
-    // Get length of data
-    curEntry.data = nullptr;
-    curEntry.dataLength = 0;
-    switch (curEntry.type)
-    {
-    case Type_BigArray:
-      f.ReadArray(&curEntry.dataLength, 1);
-      curEntry.dataLength = Common::swap16(curEntry.dataLength);
-      break;
+    file.ReadBytes(&description, sizeof(description));
+    const Entry::Type type = static_cast<Entry::Type>((description & 0xe0) >> 5);
+    const u8 name_length = (description & 0x1f) + 1;
+    std::string name(name_length, '\0');
+    file.ReadBytes(&name[0], name.size());
 
-    case Type_SmallArray:
+    // Data
+    std::vector<u8> data;
+    switch (type)
     {
-      u8 dlength = 0;
-      f.ReadBytes(&dlength, 1);
-      curEntry.dataLength = dlength;
+    case Entry::Type::BigArray:
+    {
+      u16 data_length = 0;
+      file.ReadBytes(&data_length, sizeof(data_length));
+      // The stored u16 is length - 1, not length.
+      data.resize(Common::swap16(data_length) + 1);
       break;
     }
-
-    case Type_Byte:
-    case Type_Bool:
-      curEntry.dataLength = 1;
+    case Entry::Type::SmallArray:
+    {
+      u8 data_length = 0;
+      file.ReadBytes(&data_length, sizeof(data_length));
+      data.resize(data_length + 1);
       break;
-
-    case Type_Short:
-      curEntry.dataLength = 2;
+    }
+    case Entry::Type::Byte:
+    case Entry::Type::ByteBool:
+    case Entry::Type::Short:
+    case Entry::Type::Long:
+    case Entry::Type::LongLong:
+      data.resize(GetNonArrayEntrySize(type));
       break;
-
-    case Type_Long:
-      curEntry.dataLength = 4;
-      break;
-
-    case Type_LongLong:
-      curEntry.dataLength = 8;
-      break;
-
     default:
-      PanicAlertT("Unknown entry type %i in SYSCONF (%s@%x)!", curEntry.type, curEntry.name,
-                  curEntry.offset);
+      ERROR_LOG(CORE, "Unknown entry type %d in SYSCONF for %s (offset %u)", static_cast<u8>(type),
+                name.c_str(), offset);
       return false;
-      break;
     }
-    // Fill in the actual data
-    if (curEntry.dataLength)
-    {
-      curEntry.data = new u8[curEntry.dataLength];
-      f.ReadArray(curEntry.data, curEntry.dataLength);
-    }
-  }
 
-  return f.IsGood();
+    file.ReadBytes(data.data(), data.size());
+    AddEntry({type, name, std::move(data)});
+  }
+  return true;
 }
 
-// Returns the size of the item in file
-static unsigned int create_item(SSysConfEntry& item, SysconfType type, const std::string& name,
-                                const int data_length, unsigned int offset)
+template <typename T>
+static void AppendToBuffer(std::vector<u8>* vector, T value)
 {
-  item.offset = offset;
-  item.type = type;
-  item.nameLength = (u8)(name.length());
-  strncpy(item.name, name.c_str(), 32);
-  item.dataLength = data_length;
-  item.data = new u8[data_length];
-  memset(item.data, 0, data_length);
-  switch (type)
-  {
-  case Type_BigArray:
-    // size of description + name length + size of dataLength + data length + null
-    return 1 + item.nameLength + 2 + item.dataLength + 1;
-  case Type_SmallArray:
-    // size of description + name length + size of dataLength + data length + null
-    return 1 + item.nameLength + 1 + item.dataLength + 1;
-  case Type_Byte:
-  case Type_Bool:
-  case Type_Short:
-  case Type_Long:
-    // size of description + name length + data length
-    return 1 + item.nameLength + item.dataLength;
-  default:
-    return 0;
-  }
+  const T swapped_value = Common::FromBigEndian(value);
+  vector->resize(vector->size() + sizeof(T));
+  std::memcpy(&*(vector->end() - sizeof(T)), &swapped_value, sizeof(T));
 }
 
-void SysConf::GenerateSysConf()
+bool SysConf::Save() const
 {
-  SSysConfHeader s_Header;
-  strncpy(s_Header.version, "SCv0", 4);
-  s_Header.numEntries = Common::swap16(28 - 1);
+  std::vector<u8> buffer;
+  buffer.reserve(SYSCONF_SIZE);
 
-  std::vector<SSysConfEntry> items(27);
+  // Header
+  constexpr std::array<u8, 4> version{{'S', 'C', 'v', '0'}};
+  buffer.insert(buffer.end(), version.cbegin(), version.cend());
+  AppendToBuffer<u16>(&buffer, static_cast<u16>(m_entries.size()));
 
-  // version length + size of numEntries + 28 * size of offset
-  unsigned int current_offset = 4 + 2 + 28 * 2;
-
-  // BT.DINF
-  current_offset += create_item(items[0], Type_BigArray, "BT.DINF", 0x460, current_offset);
-  items[0].data[0] = 4;
-  for (u8 i = 0; i < 4; ++i)
+  const size_t entries_begin_offset = buffer.size() + sizeof(u16) * (m_entries.size() + 1);
+  std::vector<u8> entries;
+  for (const auto& item : m_entries)
   {
-    const u8 bt_addr[6] = {i, 0x00, 0x79, 0x19, 0x02, 0x11};
-    memcpy(&items[0].data[1 + 70 * i], bt_addr, sizeof(bt_addr));
-    memcpy(&items[0].data[7 + 70 * i], "Nintendo RVL-CNT-01", 19);
-  }
+    // Offset
+    AppendToBuffer<u16>(&buffer, static_cast<u16>(entries_begin_offset + entries.size()));
 
-  // BT.SENS
-  current_offset += create_item(items[1], Type_Long, "BT.SENS", 4, current_offset);
-  items[1].data[3] = 0x03;
+    // Entry metadata (type and name)
+    entries.insert(entries.end(),
+                   (static_cast<u8>(item.type) << 5) | (static_cast<u8>(item.name.size()) - 1));
+    entries.insert(entries.end(), item.name.cbegin(), item.name.cend());
 
-  // IPL.NIK
-  current_offset += create_item(items[2], Type_SmallArray, "IPL.NIK", 0x15, current_offset);
-  const u8 console_nick[14] = {0, 'd', 0, 'o', 0, 'l', 0, 'p', 0, 'h', 0, 'i', 0, 'n'};
-  memcpy(items[2].data, console_nick, 14);
-
-  // IPL.AR
-  current_offset += create_item(items[3], Type_Byte, "IPL.AR", 1, current_offset);
-  items[3].data[0] = 0x01;
-
-  // BT.BAR
-  current_offset += create_item(items[4], Type_Byte, "BT.BAR", 1, current_offset);
-  items[4].data[0] = 0x01;
-
-  // IPL.SSV
-  current_offset += create_item(items[5], Type_Byte, "IPL.SSV", 1, current_offset);
-
-  // IPL.LNG
-  current_offset += create_item(items[6], Type_Byte, "IPL.LNG", 1, current_offset);
-  items[6].data[0] = 0x01;
-
-  // IPL.SADR
-  current_offset += create_item(items[7], Type_BigArray, "IPL.SADR", 0x1007, current_offset);
-  items[7].data[0] = 0x6c;  //(Switzerland) TODO should this default be changed?
-
-  // IPL.CB
-  current_offset += create_item(items[8], Type_Long, "IPL.CB", 4, current_offset);
-  items[8].data[0] = 0x0f;
-  items[8].data[1] = 0x11;
-  items[8].data[2] = 0x14;
-  items[8].data[3] = 0xa6;
-
-  // BT.SPKV
-  current_offset += create_item(items[9], Type_Byte, "BT.SPKV", 1, current_offset);
-  items[9].data[0] = 0x58;
-
-  // IPL.PC
-  current_offset += create_item(items[10], Type_SmallArray, "IPL.PC", 0x49, current_offset);
-  items[10].data[1] = 0x04;
-  items[10].data[2] = 0x14;
-
-  // NET.CTPC
-  current_offset += create_item(items[11], Type_Long, "NET.CTPC", 4, current_offset);
-
-  // WWW.RST
-  current_offset += create_item(items[12], Type_Bool, "WWW.RST", 1, current_offset);
-
-  // BT.CDIF
-  current_offset += create_item(items[13], Type_BigArray, "BT.CDIF", 0x204, current_offset);
-
-  // IPL.INC
-  current_offset += create_item(items[14], Type_Long, "IPL.INC", 4, current_offset);
-  items[14].data[3] = 0x08;
-
-  // IPL.FRC
-  current_offset += create_item(items[15], Type_Long, "IPL.FRC", 4, current_offset);
-  items[15].data[3] = 0x28;
-
-  // IPL.CD
-  current_offset += create_item(items[16], Type_Bool, "IPL.CD", 1, current_offset);
-  items[16].data[0] = 0x01;
-
-  // IPL.CD2
-  current_offset += create_item(items[17], Type_Bool, "IPL.CD2", 1, current_offset);
-  items[17].data[0] = 0x01;
-
-  // IPL.UPT
-  current_offset += create_item(items[18], Type_Byte, "IPL.UPT", 1, current_offset);
-  items[18].data[0] = 0x02;
-
-  // IPL.PGS
-  current_offset += create_item(items[19], Type_Byte, "IPL.PGS", 1, current_offset);
-
-  // IPL.E60
-  current_offset += create_item(items[20], Type_Byte, "IPL.E60", 1, current_offset);
-  items[20].data[0] = 0x01;
-
-  // IPL.DH
-  current_offset += create_item(items[21], Type_Byte, "IPL.DH", 1, current_offset);
-
-  // NET.WCFG
-  current_offset += create_item(items[22], Type_Long, "NET.WCFG", 4, current_offset);
-  items[22].data[3] = 0x01;
-
-  // IPL.IDL
-  current_offset += create_item(items[23], Type_SmallArray, "IPL.IDL", 1, current_offset);
-  items[23].data[0] = 0x00;
-
-  // IPL.EULA
-  current_offset += create_item(items[24], Type_Bool, "IPL.EULA", 1, current_offset);
-  items[24].data[0] = 0x01;
-
-  // BT.MOT
-  current_offset += create_item(items[25], Type_Byte, "BT.MOT", 1, current_offset);
-  items[25].data[0] = 0x01;
-
-  // MPLS.MOVIE
-  current_offset += create_item(items[26], Type_Bool, "MPLS.MOVIE", 1, current_offset);
-  items[26].data[0] = 0x01;
-
-  File::CreateFullPath(m_FilenameDefault);
-  File::IOFile g(m_FilenameDefault, "wb");
-
-  // Write the header and item offsets
-  g.WriteBytes(&s_Header.version, sizeof(s_Header.version));
-  g.WriteBytes(&s_Header.numEntries, sizeof(u16));
-  for (const auto& item : items)
-  {
-    const u16 tmp_offset = Common::swap16(item.offset);
-    g.WriteBytes(&tmp_offset, 2);
-  }
-  const u16 end_data_offset = Common::swap16(current_offset);
-  g.WriteBytes(&end_data_offset, 2);
-
-  // Write the items
-  const u8 null_byte = 0;
-  for (const auto& item : items)
-  {
-    u8 description = (item.type << 5) | (item.nameLength - 1);
-    g.WriteBytes(&description, sizeof(description));
-    g.WriteBytes(&item.name, item.nameLength);
+    // Entry data
     switch (item.type)
     {
-    case Type_BigArray:
+    case Entry::Type::BigArray:
     {
-      const u16 tmpDataLength = Common::swap16(item.dataLength);
-      g.WriteBytes(&tmpDataLength, 2);
-      g.WriteBytes(item.data, item.dataLength);
-      g.WriteBytes(&null_byte, 1);
-    }
-    break;
-
-    case Type_SmallArray:
-      g.WriteBytes(&item.dataLength, 1);
-      g.WriteBytes(item.data, item.dataLength);
-      g.WriteBytes(&null_byte, 1);
+      const u16 data_size = static_cast<u16>(item.bytes.size());
+      // length - 1 is stored, not length.
+      AppendToBuffer<u16>(&entries, data_size - 1);
+      entries.insert(entries.end(), item.bytes.cbegin(), item.bytes.cbegin() + data_size);
       break;
+    }
+
+    case Entry::Type::SmallArray:
+    {
+      const u8 data_size = static_cast<u8>(item.bytes.size());
+      AppendToBuffer<u8>(&entries, data_size - 1);
+      entries.insert(entries.end(), item.bytes.cbegin(), item.bytes.cbegin() + data_size);
+      break;
+    }
 
     default:
-      g.WriteBytes(item.data, item.dataLength);
+      entries.insert(entries.end(), item.bytes.cbegin(), item.bytes.cend());
       break;
     }
   }
+  // Offset for the dummy past-the-end entry.
+  AppendToBuffer<u16>(&buffer, static_cast<u16>(entries_begin_offset + entries.size()));
 
-  // Pad file to the correct size
-  const u64 cur_size = g.GetSize();
-  for (unsigned int i = 0; i != 16380 - cur_size; ++i)
-    g.WriteBytes(&null_byte, 1);
+  // Main data.
+  buffer.insert(buffer.end(), entries.cbegin(), entries.cend());
 
-  // Write the footer
-  g.WriteBytes("SCed", 4);
+  // Make sure the buffer size is 0x4000 bytes now and write the footer.
+  buffer.resize(SYSCONF_SIZE);
+  constexpr std::array<u8, 4> footer = {{'S', 'C', 'e', 'd'}};
+  std::copy(footer.cbegin(), footer.cend(), buffer.end() - footer.size());
 
-  m_Entries = std::move(items);
-  m_Filename = m_FilenameDefault;
-  m_IsValid = true;
-}
-
-bool SysConf::SaveToFile(const std::string& filename)
-{
-  File::IOFile f(filename, "r+b");
-
-  for (auto i = m_Entries.begin(); i < m_Entries.end() - 1; ++i)
+  // Write the new data.
+  const std::string temp_file = m_file_name + ".tmp";
+  File::CreateFullPath(temp_file);
   {
-    // Seek to after the name of this entry
-    f.Seek(i->offset + i->nameLength + 1, SEEK_SET);
-
-    // We may have to write array length value...
-    if (i->type == Type_BigArray)
-    {
-      const u16 tmpDataLength = Common::swap16(i->dataLength);
-      f.WriteArray(&tmpDataLength, 1);
-    }
-    else if (i->type == Type_SmallArray)
-    {
-      const u8 len = (u8)(i->dataLength);
-      f.WriteArray(&len, 1);
-    }
-
-    // Now write the actual data
-    f.WriteBytes(i->data, i->dataLength);
+    File::IOFile file(temp_file, "wb");
+    if (!file.WriteBytes(buffer.data(), buffer.size()))
+      return false;
   }
-
-  return f.IsGood();
+  return File::RenameSync(temp_file, m_file_name);
 }
 
-bool SysConf::Save()
+SysConf::Entry::Entry(Type type_, const std::string& name_) : type(type_), name(name_)
 {
-  if (!m_IsValid)
-    return false;
-
-  return SaveToFile(m_Filename);
+  if (type != Type::SmallArray && type != Type::BigArray)
+    bytes.resize(GetNonArrayEntrySize(type));
 }
 
-void SysConf::UpdateLocation()
+SysConf::Entry::Entry(Type type_, const std::string& name_, const std::vector<u8>& bytes_)
+    : type(type_), name(name_), bytes(bytes_)
 {
-  // if the old Wii User dir had a sysconf file save any settings that have been changed to it
-  if (m_IsValid)
-    Save();
-
-  // Clear the old filename and set the default filename to the new user path
-  // So that it can be generated if the file does not exist in the new location
-  m_Filename.clear();
-  // Note: We don't use the dummy Wii root here (if in use) because this is
-  // all tied up with the configuration code.  In the future this should
-  // probably just be synced with the other settings.
-  m_FilenameDefault =
-      File::GetUserPath(D_WIIROOT_IDX) + DIR_SEP WII_SYSCONF_DIR DIR_SEP WII_SYSCONF;
-  Reload();
 }
 
-bool SysConf::Reload()
+SysConf::Entry::Entry(Type type_, const std::string& name_, std::vector<u8>&& bytes_)
+    : type(type_), name(name_), bytes(std::move(bytes_))
 {
-  std::string& filename = m_Filename.empty() ? m_FilenameDefault : m_Filename;
+}
 
-  LoadFromFile(filename);
-  return m_IsValid;
+void SysConf::AddEntry(Entry&& entry)
+{
+  m_entries.emplace_back(std::move(entry));
+}
+
+SysConf::Entry* SysConf::GetEntry(const std::string& key)
+{
+  const auto iterator = std::find_if(m_entries.begin(), m_entries.end(),
+                                     [&key](const auto& entry) { return entry.name == key; });
+  return iterator != m_entries.end() ? &*iterator : nullptr;
+}
+
+const SysConf::Entry* SysConf::GetEntry(const std::string& key) const
+{
+  const auto iterator = std::find_if(m_entries.begin(), m_entries.end(),
+                                     [&key](const auto& entry) { return entry.name == key; });
+  return iterator != m_entries.end() ? &*iterator : nullptr;
+}
+
+SysConf::Entry* SysConf::GetOrAddEntry(const std::string& key, Entry::Type type)
+{
+  if (Entry* entry = GetEntry(key))
+    return entry;
+  AddEntry({type, key});
+  return GetEntry(key);
+}
+
+void SysConf::RemoveEntry(const std::string& key)
+{
+  m_entries.erase(std::remove_if(m_entries.begin(), m_entries.end(),
+                                 [&key](const auto& entry) { return entry.name == key; }),
+                  m_entries.end());
+}
+
+void SysConf::InsertDefaultEntries()
+{
+  AddEntry({Entry::Type::BigArray, "BT.DINF", std::vector<u8>(0x460 + 1)});
+  AddEntry({Entry::Type::BigArray, "BT.CDIF", std::vector<u8>(0x204 + 1)});
+  AddEntry({Entry::Type::Long, "BT.SENS", {0, 0, 0, 3}});
+  AddEntry({Entry::Type::Byte, "BT.BAR", {1}});
+  AddEntry({Entry::Type::Byte, "BT.SPKV", {0x58}});
+  AddEntry({Entry::Type::Byte, "BT.MOT", {1}});
+
+  std::vector<u8> console_nick = {0, 'd', 0, 'o', 0, 'l', 0, 'p', 0, 'h', 0, 'i', 0, 'n'};
+  // 22 bytes: 2 bytes per character (10 characters maximum),
+  // 1 for a null terminating character, 1 for the string length
+  console_nick.resize(22);
+  console_nick[21] = static_cast<u8>(strlen("dolphin"));
+  AddEntry({Entry::Type::SmallArray, "IPL.NIK", std::move(console_nick)});
+
+  AddEntry({Entry::Type::Byte, "IPL.LNG", {1}});
+  std::vector<u8> ipl_sadr(0x1007 + 1);
+  ipl_sadr[0] = 0x6c;
+  AddEntry({Entry::Type::BigArray, "IPL.SADR", std::move(ipl_sadr)});
+
+  std::vector<u8> ipl_pc(0x49 + 1);
+  ipl_pc[1] = 0x04;
+  ipl_pc[2] = 0x14;
+  AddEntry({Entry::Type::SmallArray, "IPL.PC", std::move(ipl_pc)});
+
+  AddEntry({Entry::Type::Long, "IPL.CB", {0x0f, 0x11, 0x14, 0xa6}});
+  AddEntry({Entry::Type::Byte, "IPL.AR", {1}});
+  AddEntry({Entry::Type::Byte, "IPL.SSV", {1}});
+
+  AddEntry({Entry::Type::ByteBool, "IPL.CD", {0}});
+  AddEntry({Entry::Type::ByteBool, "IPL.CD2", {0}});
+  AddEntry({Entry::Type::ByteBool, "IPL.EULA", {1}});
+  AddEntry({Entry::Type::Byte, "IPL.UPT", {2}});
+  AddEntry({Entry::Type::Byte, "IPL.PGS", {0}});
+  AddEntry({Entry::Type::Byte, "IPL.E60", {1}});
+  AddEntry({Entry::Type::Byte, "IPL.DH", {0}});
+  AddEntry({Entry::Type::Long, "IPL.INC", {0, 0, 0, 8}});
+  AddEntry({Entry::Type::Long, "IPL.FRC", {0, 0, 0, 0x28}});
+  AddEntry({Entry::Type::SmallArray, "IPL.IDL", {0, 1}});
+
+  AddEntry({Entry::Type::Long, "NET.WCFG", {0, 0, 0, 1}});
+  AddEntry({Entry::Type::Long, "NET.CTPC", std::vector<u8>(4)});
+  AddEntry({Entry::Type::Byte, "WWW.RST", {0}});
+
+  AddEntry({Entry::Type::ByteBool, "MPLS.MOVIE", {1}});
 }

@@ -7,7 +7,10 @@
 #include "AudioCommon/AudioCommon.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
+#include "Core/ConfigManager.h"
 #include "Core/HW/WiimoteEmu/WiimoteEmu.h"
+#include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
+#include "InputCommon/ControllerEmu/Setting/NumericSetting.h"
 
 //#define WIIMOTE_SPEAKER_DUMP
 #ifdef WIIMOTE_SPEAKER_DUMP
@@ -65,7 +68,7 @@ void stopdamnwav()
 }
 #endif
 
-void Wiimote::SpeakerData(wm_speaker_data* sd)
+void Wiimote::SpeakerData(const wm_speaker_data* sd)
 {
   if (!SConfig::GetInstance().m_WiimoteEnableSpeaker)
     return;
@@ -110,7 +113,7 @@ void Wiimote::SpeakerData(wm_speaker_data* sd)
   }
   else
   {
-    ERROR_LOG(WII_IPC_WIIMOTE, "Unknown speaker format %x\n", m_reg_speaker.format);
+    ERROR_LOG(IOS_WIIMOTE, "Unknown speaker format %x", m_reg_speaker.format);
     return;
   }
 
@@ -141,8 +144,8 @@ void Wiimote::SpeakerData(wm_speaker_data* sd)
     File::Delete("rmtdump.wav");
     File::Delete("rmtdump.bin");
     atexit(stopdamnwav);
-    OpenFStream(ofile, "rmtdump.bin", ofile.binary | ofile.out);
-    wav.Start("rmtdump.wav", 6000 /*Common::swap16(m_reg_speaker.sample_rate)*/);
+    File::OpenFStream(ofile, "rmtdump.bin", ofile.binary | ofile.out);
+    wav.Start("rmtdump.wav", 6000);
   }
   wav.AddMonoSamples(samples.get(), sd->length * 2);
   if (ofile.good())

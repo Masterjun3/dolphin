@@ -13,48 +13,56 @@
 #include "DolphinQt2/GameList/GameFile.h"
 #include "DolphinQt2/GameList/GameListModel.h"
 
-class TableDelegate;
-
 class GameList final : public QStackedWidget
 {
   Q_OBJECT
 
 public:
   explicit GameList(QWidget* parent = nullptr);
-  QString GetSelectedGame() const;
+  QSharedPointer<GameFile> GetSelectedGame() const;
 
-public slots:
-  void SetTableView() { SetPreferredView(true); }
-  void SetListView() { SetPreferredView(false); }
-  void SetViewColumn(int col, bool view) { m_table->setColumnHidden(col, !view); }
-private slots:
-  void ShowContextMenu(const QPoint&);
-  void OpenProperties();
-  void OpenWiki();
-  void SetDefaultISO();
+  void SetListView() { SetPreferredView(true); }
+  void SetGridView() { SetPreferredView(false); }
+  void SetViewColumn(int col, bool view) { m_list->setColumnHidden(col, !view); }
+  void OnColumnVisibilityToggled(const QString& row, bool visible);
+  void OnGameListVisibilityChanged();
 
 signals:
   void GameSelected();
-  void DirectoryAdded(const QString& dir);
-  void DirectoryRemoved(const QString& dir);
+  void NetPlayHost(const QString& game_id);
+  void SelectionChanged(QSharedPointer<GameFile> game_file);
+  void OpenGeneralSettings();
 
 private:
-  void MakeTableView();
+  void ShowContextMenu(const QPoint&);
+  void OpenContainingFolder();
+  void OpenProperties();
+  void OpenSaveFolder();
+  void OpenWiki();
+  void SetDefaultISO();
+  void DeleteFile();
+  void InstallWAD();
+  void UninstallWAD();
+  void ExportWiiSave();
+  void CompressISO();
+  void ChangeDisc();
+  void OnHeaderViewChanged();
+
   void MakeListView();
+  void MakeGridView();
   void MakeEmptyView();
   // We only have two views, just use a bool to distinguish.
-  void SetPreferredView(bool table);
+  void SetPreferredView(bool list);
   void ConsiderViewChange();
 
   GameListModel* m_model;
-  TableDelegate* m_delegate;
-  QSortFilterProxyModel* m_table_proxy;
   QSortFilterProxyModel* m_list_proxy;
+  QSortFilterProxyModel* m_grid_proxy;
 
-  QListView* m_list;
-  QTableView* m_table;
+  QListView* m_grid;
+  QTableView* m_list;
   QLabel* m_empty;
-  bool m_prefer_table;
+  bool m_prefer_list;
 
 protected:
   void keyReleaseEvent(QKeyEvent* event) override;

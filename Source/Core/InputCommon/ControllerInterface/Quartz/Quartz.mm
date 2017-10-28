@@ -10,8 +10,11 @@ namespace ciface
 {
 namespace Quartz
 {
-void Init(void* window)
+void PopulateDevices(void* window)
 {
+  if (!window)
+    return;
+
   g_controller_interface.AddDevice(std::make_shared<KeyboardAndMouse>(window));
 }
 

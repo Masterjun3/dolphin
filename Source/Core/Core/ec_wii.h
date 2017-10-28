@@ -24,15 +24,13 @@
 
 #pragma once
 
-#include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 
-void get_ng_cert(u8* ng_cert_out, u32 NG_id, u32 NG_key_id, const u8* NG_priv, const u8* NG_sig);
-void get_ap_sig_and_cert(u8* sig_out, u8* ap_cert_out, u64 title_id, u8* data, u32 data_size,
-                         const u8* NG_priv, u32 NG_id);
+constexpr u32 DEFAULT_WII_DEVICE_ID = 0x0403AC68;
 
-void make_blanksig_ec_cert(u8* cert_out, const char* signer, const char* name,
-                           const u8* private_key, u32 key_id);
+void MakeNGCert(u8* ng_cert_out, u32 NG_id, u32 NG_key_id, const u8* NG_priv, const u8* NG_sig);
+void MakeAPSigAndCert(u8* sig_out, u8* ap_cert_out, u64 title_id, u8* data, u32 data_size,
+                      const u8* NG_priv, u32 NG_id);
 
 class EcWii
 {
@@ -40,10 +38,12 @@ public:
   EcWii();
   ~EcWii();
   static EcWii& GetInstance();
-  u32 getNgId() { return Common::swap32(BootMiiKeysBin.ng_id); }
-  u32 getNgKeyId() { return Common::swap32(BootMiiKeysBin.ng_key_id); }
-  const u8* getNgPriv() { return BootMiiKeysBin.ng_priv; }
-  const u8* getNgSig() { return BootMiiKeysBin.ng_sig; }
+  u32 GetNGID() const;
+  u32 GetNGKeyID() const;
+  const u8* GetNGPriv() const;
+  const u8* GetNGSig() const;
+  const u8* GetBackupKey() const;
+
 private:
   void InitDefaults();
 
@@ -68,7 +68,8 @@ private:
     u8 boot1_hash[0x14];  // 0x100
     u8 common_key[0x10];  // 0x114
     u32 ng_id;            // 0x124
-    union {
+    union
+    {
       struct
       {
         u8 ng_priv[0x1e];  // 0x128
@@ -82,7 +83,7 @@ private:
       };
     };
     u8 nand_key[0x10];    // 0x158
-    u8 rng_key[0x10];     // 0x168
+    u8 backup_key[0x10];  // 0x168
     u32 unk1;             // 0x178
     u32 unk2;             // 0x17C
     u8 eeprom_pad[0x80];  // 0x180

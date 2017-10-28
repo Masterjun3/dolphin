@@ -2,17 +2,19 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "Core/HW/ProcessorInterface.h"
+
 #include <cstdio>
+#include <memory>
 
 #include "Common/ChunkFile.h"
 #include "Common/CommonTypes.h"
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/MMIO.h"
-#include "Core/HW/ProcessorInterface.h"
 #include "Core/HW/SystemTimers.h"
-#include "Core/IPC_HLE/WII_IPC_HLE.h"
-#include "Core/IPC_HLE/WII_IPC_HLE_Device_stm.h"
+#include "Core/IOS/IOS.h"
+#include "Core/IOS/STM/STM.h"
 #include "Core/PowerPC/PowerPC.h"
 
 namespace ProcessorInterface
@@ -210,28 +212,30 @@ static void ToggleResetButtonCallback(u64 userdata, s64 cyclesLate)
 
 static void IOSNotifyResetButtonCallback(u64 userdata, s64 cyclesLate)
 {
-  if (SConfig::GetInstance().bWii)
-  {
-    std::shared_ptr<IWII_IPC_HLE_Device> stm =
-        WII_IPC_HLE_Interface::GetDeviceByName("/dev/stm/eventhook");
-    if (stm)
-      std::static_pointer_cast<CWII_IPC_HLE_Device_stm_eventhook>(stm)->ResetButton();
-  }
+  const auto ios = IOS::HLE::GetIOS();
+  if (!ios)
+    return;
+
+  auto stm = ios->GetDeviceByName("/dev/stm/eventhook");
+  if (stm)
+    std::static_pointer_cast<IOS::HLE::Device::STMEventHook>(stm)->ResetButton();
 }
 
 static void IOSNotifyPowerButtonCallback(u64 userdata, s64 cyclesLate)
 {
-  if (SConfig::GetInstance().bWii)
-  {
-    std::shared_ptr<IWII_IPC_HLE_Device> stm =
-        WII_IPC_HLE_Interface::GetDeviceByName("/dev/stm/eventhook");
-    if (stm)
-      std::static_pointer_cast<CWII_IPC_HLE_Device_stm_eventhook>(stm)->PowerButton();
-  }
+  const auto ios = IOS::HLE::GetIOS();
+  if (!ios)
+    return;
+
+  auto stm = ios->GetDeviceByName("/dev/stm/eventhook");
+  if (stm)
+    std::static_pointer_cast<IOS::HLE::Device::STMEventHook>(stm)->PowerButton();
 }
 
 void ResetButton_Tap()
 {
+  if (!Core::IsRunning())
+    return;
   CoreTiming::ScheduleEvent(0, toggleResetButton, true, CoreTiming::FromThread::ANY);
   CoreTiming::ScheduleEvent(0, iosNotifyResetButton, 0, CoreTiming::FromThread::ANY);
   CoreTiming::ScheduleEvent(SystemTimers::GetTicksPerSecond() / 2, toggleResetButton, false,
@@ -240,6 +244,8 @@ void ResetButton_Tap()
 
 void PowerButton_Tap()
 {
+  if (!Core::IsRunning())
+    return;
   CoreTiming::ScheduleEvent(0, iosNotifyPowerButton, 0, CoreTiming::FromThread::ANY);
 }
 

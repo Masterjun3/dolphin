@@ -10,14 +10,6 @@
 
 enum class APIType;
 
-// Different ways to achieve rendering with destination alpha
-enum DSTALPHA_MODE
-{
-  DSTALPHA_NONE,              // Render normally, without destination alpha
-  DSTALPHA_ALPHA_PASS,        // Render normally first, then render again for alpha
-  DSTALPHA_DUAL_SOURCE_BLEND  // Use dual-source blending
-};
-
 #pragma pack(1)
 struct pixel_shader_uid_data
 {
@@ -26,10 +18,10 @@ struct pixel_shader_uid_data
   u32 num_values;  // TODO: Shouldn't be a u32
   u32 NumValues() const { return num_values; }
   u32 components : 2;
-  u32 dstAlphaMode : 2;
+  u32 pad0 : 2;
+  u32 useDstAlpha : 1;
   u32 Pretest : 2;
   u32 nIndirectStagesUsed : 4;
-  u32 stereo : 1;
   u32 genMode_numtexgens : 4;
   u32 genMode_numtevstages : 4;
   u32 genMode_numindstages : 3;
@@ -42,18 +34,17 @@ struct pixel_shader_uid_data
   u32 fog_fsel : 3;
   u32 fog_RangeBaseEnabled : 1;
   u32 ztex_op : 2;
-  u32 fast_depth_calc : 1;
   u32 per_pixel_depth : 1;
-  u32 per_pixel_lighting : 1;
   u32 forced_early_z : 1;
   u32 early_ztest : 1;
   u32 late_ztest : 1;
   u32 bounding_box : 1;
   u32 zfreeze : 1;
-  u32 msaa : 1;
-  u32 ssaa : 1;
   u32 numColorChans : 2;
-  u32 pad : 14;
+  u32 rgba6_format : 1;
+  u32 dither : 1;
+  u32 uint_output : 1;
+  u32 pad : 15;
 
   u32 texMtxInfo_n_projection : 8;  // 8x1 bit
   u32 tevindref_bi0 : 3;
@@ -167,5 +158,9 @@ struct pixel_shader_uid_data
 
 typedef ShaderUid<pixel_shader_uid_data> PixelShaderUid;
 
-ShaderCode GeneratePixelShaderCode(APIType ApiType, const pixel_shader_uid_data* uid_data);
-PixelShaderUid GetPixelShaderUid(DSTALPHA_MODE dstAlphaMode);
+ShaderCode GeneratePixelShaderCode(APIType ApiType, const ShaderHostConfig& host_config,
+                                   const pixel_shader_uid_data* uid_data);
+void WritePixelShaderCommonHeader(ShaderCode& out, APIType ApiType, u32 num_texgens,
+                                  bool per_pixel_lighting, bool bounding_box);
+void ClearUnusedPixelShaderUidBits(APIType ApiType, PixelShaderUid* uid);
+PixelShaderUid GetPixelShaderUid();

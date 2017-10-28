@@ -2,17 +2,22 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "VideoBackends/D3D/D3DUtil.h"
+
 #include <cctype>
 #include <list>
 #include <string>
 
+#include "Common/Align.h"
+#include "Common/Assert.h"
+#include "Common/Logging/Log.h"
 #include "VideoBackends/D3D/D3DBase.h"
 #include "VideoBackends/D3D/D3DShader.h"
 #include "VideoBackends/D3D/D3DState.h"
-#include "VideoBackends/D3D/D3DUtil.h"
 #include "VideoBackends/D3D/GeometryShaderCache.h"
 #include "VideoBackends/D3D/PixelShaderCache.h"
 #include "VideoBackends/D3D/VertexShaderCache.h"
+#include "VideoCommon/VideoBackendBase.h"
 
 namespace DX11
 {
@@ -22,7 +27,7 @@ namespace D3D
 class UtilVertexBuffer
 {
 public:
-  UtilVertexBuffer(int size) : buf(nullptr), offset(0), max_size(size)
+  UtilVertexBuffer(unsigned int size) : max_size(size)
   {
     D3D11_BUFFER_DESC desc = CD3D11_BUFFER_DESC(max_size, D3D11_BIND_VERTEX_BUFFER,
                                                 D3D11_USAGE_DYNAMIC, D3D11_CPU_ACCESS_WRITE);
@@ -31,7 +36,7 @@ public:
   ~UtilVertexBuffer() { buf->Release(); }
   int GetSize() const { return max_size; }
   // returns vertex offset to the new data
-  int AppendData(void* data, int size, int vertex_size)
+  int AppendData(void* data, unsigned int size, unsigned int vertex_size)
   {
     D3D11_MAPPED_SUBRESOURCE map;
     if (offset + size >= max_size)
@@ -47,8 +52,7 @@ public:
     {
       context->Map(buf, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &map);
     }
-    offset = ((offset + vertex_size - 1) / vertex_size) *
-             vertex_size;  // align offset to vertex_size bytes
+    offset = Common::AlignUp(offset, vertex_size);
     memcpy((u8*)map.pData + offset, data, size);
     context->Unmap(buf, 0);
 
@@ -56,13 +60,12 @@ public:
     return (offset - size) / vertex_size;
   }
 
-  int BeginAppendData(void** write_ptr, int size, int vertex_size)
+  int BeginAppendData(void** write_ptr, unsigned int size, unsigned int vertex_size)
   {
     _dbg_assert_(VIDEO, size < max_size);
 
     D3D11_MAPPED_SUBRESOURCE map;
-    int aligned_offset = ((offset + vertex_size - 1) / vertex_size) *
-                         vertex_size;  // align offset to vertex_size bytes
+    unsigned int aligned_offset = Common::AlignUp(offset, vertex_size);
     if (aligned_offset + size > max_size)
     {
       // wrap buffer around and notify observers
@@ -87,9 +90,9 @@ public:
   void AddWrapObserver(bool* observer) { observers.push_back(observer); }
   inline ID3D11Buffer*& GetBuffer() { return buf; }
 private:
-  ID3D11Buffer* buf;
-  int offset;
-  int max_size;
+  ID3D11Buffer* buf = nullptr;
+  unsigned int offset = 0;
+  unsigned int max_size;
 
   std::list<bool*> observers;
 };
@@ -246,7 +249,7 @@ int CD3DFont::Init()
     PanicAlert("Failed to create font texture");
     return hr;
   }
-  D3D::SetDebugObjectName((ID3D11DeviceChild*)buftex, "texture of a CD3DFont object");
+  D3D::SetDebugObjectName(buftex, "texture of a CD3DFont object");
 
   // Lock the surface and write the alpha values for the set pixels
   D3D11_MAPPED_SUBRESOURCE texmap;
@@ -281,7 +284,7 @@ int CD3DFont::Init()
   m_pshader = D3D::CompileAndCreatePixelShader(fontpixshader);
   if (m_pshader == nullptr)
     PanicAlert("Failed to create pixel shader, %s %d\n", __FILE__, __LINE__);
-  D3D::SetDebugObjectName((ID3D11DeviceChild*)m_pshader, "pixel shader of a CD3DFont object");
+  D3D::SetDebugObjectName(m_pshader, "pixel shader of a CD3DFont object");
 
   D3DBlob* vsbytecode;
   D3D::CompileVertexShader(fontvertshader, &vsbytecode);
@@ -290,7 +293,7 @@ int CD3DFont::Init()
   m_vshader = D3D::CreateVertexShaderFromByteCode(vsbytecode);
   if (m_vshader == nullptr)
     PanicAlert("Failed to create vertex shader, %s %d\n", __FILE__, __LINE__);
-  D3D::SetDebugObjectName((ID3D11DeviceChild*)m_vshader, "vertex shader of a CD3DFont object");
+  D3D::SetDebugObjectName(m_vshader, "vertex shader of a CD3DFont object");
 
   const D3D11_INPUT_ELEMENT_DESC desc[] = {
       {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
@@ -316,13 +319,13 @@ int CD3DFont::Init()
   blenddesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
   hr = D3D::device->CreateBlendState(&blenddesc, &m_blendstate);
   CHECK(hr == S_OK, "Create font blend state");
-  D3D::SetDebugObjectName((ID3D11DeviceChild*)m_blendstate, "blend state of a CD3DFont object");
+  D3D::SetDebugObjectName(m_blendstate, "blend state of a CD3DFont object");
 
   D3D11_RASTERIZER_DESC rastdesc = CD3D11_RASTERIZER_DESC(D3D11_FILL_SOLID, D3D11_CULL_NONE, false,
                                                           0, 0.f, 0.f, false, false, false, false);
   hr = D3D::device->CreateRasterizerState(&rastdesc, &m_raststate);
   CHECK(hr == S_OK, "Create font rasterizer state");
-  D3D::SetDebugObjectName((ID3D11DeviceChild*)m_raststate, "rasterizer state of a CD3DFont object");
+  D3D::SetDebugObjectName(m_raststate, "rasterizer state of a CD3DFont object");
 
   D3D11_BUFFER_DESC vbdesc =
       CD3D11_BUFFER_DESC(MAX_NUM_VERTICES * sizeof(FONT2DVERTEX), D3D11_BIND_VERTEX_BUFFER,
@@ -332,7 +335,7 @@ int CD3DFont::Init()
     PanicAlert("Failed to create font vertex buffer at %s, line %d\n", __FILE__, __LINE__);
     return hr;
   }
-  D3D::SetDebugObjectName((ID3D11DeviceChild*)m_pVB, "vertex buffer of a CD3DFont object");
+  D3D::SetDebugObjectName(m_pVB, "vertex buffer of a CD3DFont object");
   return S_OK;
 }
 
@@ -518,7 +521,7 @@ void InitUtils()
   if (FAILED(hr))
     PanicAlert("Failed to create sampler state at %s %d\n", __FILE__, __LINE__);
   else
-    SetDebugObjectName((ID3D11DeviceChild*)point_copy_sampler, "point copy sampler state");
+    SetDebugObjectName(point_copy_sampler, "point copy sampler state");
 
   samDesc = CD3D11_SAMPLER_DESC(D3D11_FILTER_MIN_MAG_MIP_LINEAR, D3D11_TEXTURE_ADDRESS_BORDER,
                                 D3D11_TEXTURE_ADDRESS_BORDER, D3D11_TEXTURE_ADDRESS_BORDER, 0.f, 1,
@@ -527,7 +530,7 @@ void InitUtils()
   if (FAILED(hr))
     PanicAlert("Failed to create sampler state at %s %d\n", __FILE__, __LINE__);
   else
-    SetDebugObjectName((ID3D11DeviceChild*)linear_copy_sampler, "linear copy sampler state");
+    SetDebugObjectName(linear_copy_sampler, "linear copy sampler state");
 
   // cached data used to avoid unnecessarily reloading the vertex buffers
   memset(&tex_quad_data, 0, sizeof(tex_quad_data));
@@ -736,9 +739,19 @@ void DrawEFBPokeQuads(EFBAccessType type, const EfbPokeData* points, size_t num_
       float y1 = -float(point->y) * 2.0f / EFB_HEIGHT + 1.0f;
       float x2 = float(point->x + 1) * 2.0f / EFB_WIDTH - 1.0f;
       float y2 = -float(point->y + 1) * 2.0f / EFB_HEIGHT + 1.0f;
-      float z = (type == POKE_Z) ? (1.0f - float(point->data & 0xFFFFFF) / 16777216.0f) : 0.0f;
-      u32 col = (type == POKE_Z) ? 0 : ((point->data & 0xFF00FF00) | ((point->data >> 16) & 0xFF) |
-                                        ((point->data << 16) & 0xFF0000));
+      float z = 0.0f;
+      u32 col = 0;
+
+      if (type == EFBAccessType::PokeZ)
+      {
+        z = 1.0f - static_cast<float>(point->data & 0xFFFFFF) / 16777216.0f;
+      }
+      else
+      {
+        col = ((point->data & 0xFF00FF00) | ((point->data >> 16) & 0xFF) |
+               ((point->data << 16) & 0xFF0000));
+      }
+
       current_point_index++;
 
       // quad -> triangles

@@ -7,31 +7,31 @@
 #include <string>
 #include "VideoCommon/RenderBase.h"
 
+enum class EFBAccessType;
+
 namespace DX11
 {
+class D3DTexture2D;
+
 class Renderer : public ::Renderer
 {
 public:
-  Renderer(void*& window_handle);
-  ~Renderer();
+  Renderer();
+  ~Renderer() override;
 
-  void SetColorMask() override;
-  void SetBlendMode(bool forceUpdate) override;
+  void SetBlendingState(const BlendingState& state) override;
   void SetScissorRect(const EFBRectangle& rc) override;
-  void SetGenerationMode() override;
-  void SetDepthMode() override;
-  void SetLogicOpMode() override;
-  void SetDitherMode() override;
-  void SetSamplerState(int stage, int texindex, bool custom_tex) override;
+  void SetRasterizationState(const RasterizationState& state) override;
+  void SetDepthState(const DepthState& state) override;
+  void SetSamplerState(u32 index, const SamplerState& state) override;
   void SetInterlacingMode() override;
   void SetViewport() override;
+  void SetFullscreen(bool enable_fullscreen) override;
+  bool IsFullscreen() const override;
 
   // TODO: Fix confusing names (see ResetAPIState and RestoreAPIState)
-  void ApplyState(bool bUseDstAlpha) override;
+  void ApplyState() override;
   void RestoreState() override;
-
-  void ApplyCullDisable();
-  void RestoreCull();
 
   void RenderText(const std::string& text, int left, int top, u32 color) override;
 
@@ -54,9 +54,7 @@ public:
 
   void ReinterpretPixelData(unsigned int convtype) override;
 
-  static bool CheckForResize();
-
-  u32 GetMaxTextureSize() override;
+  bool CheckForResize();
 
 private:
   void BlitScreen(TargetRectangle src, TargetRectangle dst, D3DTexture2D* src_texture,

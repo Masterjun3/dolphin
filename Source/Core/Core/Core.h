@@ -11,32 +11,31 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "Common/CommonTypes.h"
 
+struct BootParameters;
+
 namespace Core
 {
-// TODO: ugly, remove
-extern bool g_aspect_wide;
-
-extern bool g_want_determinism;
-
 bool GetIsThrottlerTempDisabled();
 void SetIsThrottlerTempDisabled(bool disable);
 
 void Callback_VideoCopiedToXFB(bool video_update);
 
-enum EState
+enum class State
 {
-  CORE_UNINITIALIZED,
-  CORE_PAUSE,
-  CORE_RUN,
-  CORE_STOPPING
+  Uninitialized,
+  Paused,
+  Running,
+  Stopping,
+  Starting,
 };
 
-bool Init();
+bool Init(std::unique_ptr<BootParameters> boot);
 void Stop();
 void Shutdown();
 
@@ -51,12 +50,14 @@ bool IsRunningInCurrentThread();  // this tells us whether we are running in the
 bool IsCPUThread();               // this tells us whether we are the CPU thread.
 bool IsGPUThread();
 
-// [NOT THREADSAFE] For use by Host only
-void SetState(EState state);
-EState GetState();
+bool WantsDeterminism();
 
-void SaveScreenShot();
-void SaveScreenShot(const std::string& name);
+// [NOT THREADSAFE] For use by Host only
+void SetState(State state);
+State GetState();
+
+void SaveScreenShot(bool wait_for_completion = false);
+void SaveScreenShot(const std::string& name, bool wait_for_completion = false);
 
 void Callback_WiimoteInterruptChannel(int _number, u16 _channelID, const void* _pData, u32 _Size);
 
@@ -66,8 +67,6 @@ void DisplayMessage(const std::string& message, int time_in_ms);
 std::string GetStateFileName();
 void SetStateFileName(const std::string& val);
 
-void SetBlockStart(u32 addr);
-
 void FrameUpdateOnCPUThread();
 
 bool ShouldSkipFrame(int skipped);
@@ -76,16 +75,18 @@ void RequestRefreshInfo();
 
 void UpdateTitle();
 
-// waits until all systems are paused and fully idle, and acquires a lock on that state.
-// or, if doLock is false, releases a lock on that state and optionally unpauses.
-// calls must be balanced (once with doLock true, then once with doLock false) but may be recursive.
-// the return value of the first call should be passed in as the second argument of the second call.
-// [NOT THREADSAFE] Host only
-bool PauseAndLock(bool doLock, bool unpauseOnUnlock = true);
+// Run a function as the CPU thread.
+//
+// If called from the Host thread, the CPU thread is paused and the current thread temporarily
+// becomes the CPU thread while running the function.
+// If called from the CPU thread, the function will be run directly.
+//
+// This should only be called from the CPU thread or the host thread.
+void RunAsCPUThread(std::function<void()> function);
 
 // for calling back into UI code without introducing a dependency on it in core
-typedef void (*StoppedCallbackFunc)(void);
-void SetOnStoppedCallback(StoppedCallbackFunc callback);
+using StateChangedCallbackFunc = std::function<void(Core::State)>;
+void SetOnStateChangedCallback(StateChangedCallbackFunc callback);
 
 // Run on the Host thread when the factors change. [NOT THREADSAFE]
 void UpdateWantDeterminism(bool initial = false);
@@ -104,5 +105,7 @@ void QueueHostJob(std::function<void()> job, bool run_during_stop = false);
 // Should be called periodically by the Host to run pending jobs.
 // WM_USER_JOB_DISPATCH will be sent when something is added to the queue.
 void HostDispatchJobs();
+
+void DoFrameStep();
 
 }  // namespace

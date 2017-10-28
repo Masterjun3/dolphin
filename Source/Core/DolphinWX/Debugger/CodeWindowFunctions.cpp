@@ -3,7 +3,11 @@
 // Refer to the license.txt file included.
 
 #include <cstddef>
+#include <cstdlib>
+#include <fstream>
 #include <istream>
+#include <limits>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -14,24 +18,29 @@
 #include <wx/listbox.h>
 #include <wx/menu.h>
 #include <wx/mimetype.h>
+#include <wx/srchctrl.h>
 #include <wx/textdlg.h>
 
 #include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"
 #include "Common/FileUtil.h"
 #include "Common/IniFile.h"
+#include "Common/MsgHandler.h"
 #include "Common/SymbolDB.h"
 
 #include "Core/Boot/Boot.h"
+#include "Core/ConfigManager.h"
 #include "Core/Core.h"
+#include "Core/Debugger/RSO.h"
 #include "Core/HLE/HLE.h"
 #include "Core/Host.h"
-#include "Core/PowerPC/JitCommon/JitBase.h"
+#include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/PPCAnalyst.h"
 #include "Core/PowerPC/PPCSymbolDB.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/PowerPC/Profiler.h"
-#include "Core/PowerPC/SignatureDB.h"
+#include "Core/PowerPC/SignatureDB/MEGASignatureDB.h"
+#include "Core/PowerPC/SignatureDB/SignatureDB.h"
 
 #include "DolphinWX/Debugger/BreakpointWindow.h"
 #include "DolphinWX/Debugger/CodeWindow.h"
@@ -61,7 +70,7 @@ void CCodeWindow::Load()
   IniFile::Section* general = ini.GetOrCreateSection("General");
   general->Get("DebuggerFont", &fontDesc);
   general->Get("AutomaticStart", &config_instance.bAutomaticStart, false);
-  general->Get("BootToPause", &config_instance.bBootToPause, true);
+  general->Get("BootToPause", &config_instance.bBootToPause, false);
 
   if (!fontDesc.empty())
     DebuggerFont.SetNativeFontInfoUserDesc(StrToWxStr(fontDesc));
@@ -74,8 +83,8 @@ void CCodeWindow::Load()
     ini.GetOrCreateSection("ShowOnStart")->Get(SettingName[i], &bShowOnStart[i], false);
 
   // Get notebook affiliation
-  std::string section = "P - " + ((Parent->ActivePerspective < Parent->Perspectives.size()) ?
-                                      Parent->Perspectives[Parent->ActivePerspective].Name :
+  std::string section = "P - " + ((Parent->m_active_perspective < Parent->m_perspectives.size()) ?
+                                      Parent->m_perspectives[Parent->m_active_perspective].name :
                                       "Perspective 1");
 
   for (int i = 0; i <= IDM_CODE_WINDOW - IDM_LOG_WINDOW; i++)
@@ -83,7 +92,7 @@ void CCodeWindow::Load()
 
   // Get floating setting
   for (int i = 0; i <= IDM_CODE_WINDOW - IDM_LOG_WINDOW; i++)
-    ini.GetOrCreateSection("Float")->Get(SettingName[i], &Parent->bFloatWindow[i], false);
+    ini.GetOrCreateSection("Float")->Get(SettingName[i], &Parent->m_float_window[i], false);
 }
 
 void CCodeWindow::Save()
@@ -93,8 +102,8 @@ void CCodeWindow::Save()
 
   IniFile::Section* general = ini.GetOrCreateSection("General");
   general->Set("DebuggerFont", WxStrToStr(DebuggerFont.GetNativeFontInfoUserDesc()));
-  general->Set("AutomaticStart", GetMenuBar()->IsChecked(IDM_AUTOMATIC_START));
-  general->Set("BootToPause", GetMenuBar()->IsChecked(IDM_BOOT_TO_PAUSE));
+  general->Set("AutomaticStart", GetParentMenuBar()->IsChecked(IDM_AUTOMATIC_START));
+  general->Set("BootToPause", GetParentMenuBar()->IsChecked(IDM_BOOT_TO_PAUSE));
 
   const char* SettingName[] = {"Log",    "LogConfig", "Console", "Registers", "Breakpoints",
                                "Memory", "JIT",       "Sound",   "Video",     "Code"};
@@ -102,10 +111,10 @@ void CCodeWindow::Save()
   // Save windows settings
   for (int i = IDM_LOG_WINDOW; i <= IDM_VIDEO_WINDOW; i++)
     ini.GetOrCreateSection("ShowOnStart")
-        ->Set(SettingName[i - IDM_LOG_WINDOW], GetMenuBar()->IsChecked(i));
+        ->Set(SettingName[i - IDM_LOG_WINDOW], GetParentMenuBar()->IsChecked(i));
 
   // Save notebook affiliations
-  std::string section = "P - " + Parent->Perspectives[Parent->ActivePerspective].Name;
+  std::string section = "P - " + Parent->m_perspectives[Parent->m_active_perspective].name;
   for (int i = 0; i <= IDM_CODE_WINDOW - IDM_LOG_WINDOW; i++)
     ini.GetOrCreateSection(section)->Set(SettingName[i], iNbAffiliation[i]);
 
@@ -122,37 +131,33 @@ void CCodeWindow::OnProfilerMenu(wxCommandEvent& event)
   switch (event.GetId())
   {
   case IDM_PROFILE_BLOCKS:
-    Core::SetState(Core::CORE_PAUSE);
-    if (jit != nullptr)
-      jit->ClearCache();
-    Profiler::g_ProfileBlocks = GetMenuBar()->IsChecked(IDM_PROFILE_BLOCKS);
-    Core::SetState(Core::CORE_RUN);
+    Core::SetState(Core::State::Paused);
+    JitInterface::ClearCache();
+    Profiler::g_ProfileBlocks = GetParentMenuBar()->IsChecked(IDM_PROFILE_BLOCKS);
+    Core::SetState(Core::State::Running);
     break;
   case IDM_WRITE_PROFILE:
-    if (Core::GetState() == Core::CORE_RUN)
-      Core::SetState(Core::CORE_PAUSE);
+    if (Core::GetState() == Core::State::Running)
+      Core::SetState(Core::State::Paused);
 
-    if (Core::GetState() == Core::CORE_PAUSE && PowerPC::GetMode() == PowerPC::MODE_JIT)
+    if (Core::GetState() == Core::State::Paused && PowerPC::GetMode() == PowerPC::CoreMode::JIT)
     {
-      if (jit != nullptr)
-      {
-        std::string filename = File::GetUserPath(D_DUMP_IDX) + "Debug/profiler.txt";
-        File::CreateFullPath(filename);
-        Profiler::WriteProfileResults(filename);
+      std::string filename = File::GetUserPath(D_DUMP_IDX) + "Debug/profiler.txt";
+      File::CreateFullPath(filename);
+      Profiler::WriteProfileResults(filename);
 
-        wxFileType* filetype = nullptr;
-        if (!(filetype = wxTheMimeTypesManager->GetFileTypeFromExtension("txt")))
-        {
-          // From extension failed, trying with MIME type now
-          if (!(filetype = wxTheMimeTypesManager->GetFileTypeFromMimeType("text/plain")))
-            // MIME type failed, aborting mission
-            break;
-        }
-        wxString OpenCommand;
-        OpenCommand = filetype->GetOpenCommand(StrToWxStr(filename));
-        if (!OpenCommand.IsEmpty())
-          wxExecute(OpenCommand, wxEXEC_SYNC);
+      wxFileType* filetype = wxTheMimeTypesManager->GetFileTypeFromExtension("txt");
+      if (!filetype)
+      {
+        // From extension failed, trying with MIME type now
+        filetype = wxTheMimeTypesManager->GetFileTypeFromMimeType("text/plain");
+        if (!filetype)
+          // MIME type failed, aborting mission
+          break;
       }
+      wxString OpenCommand = filetype->GetOpenCommand(StrToWxStr(filename));
+      if (!OpenCommand.IsEmpty())
+        wxExecute(OpenCommand, wxEXEC_SYNC);
     }
     break;
   }
@@ -160,13 +165,18 @@ void CCodeWindow::OnProfilerMenu(wxCommandEvent& event)
 
 void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
 {
+  static const wxString signature_selector = _("Dolphin Signature File (*.dsy)") + "|*.dsy|" +
+                                             _("Dolphin Signature CSV File (*.csv)") + "|*.csv|" +
+                                             _("WiiTools Signature MEGA File (*.mega)") +
+                                             "|*.mega|" + wxGetTranslation(wxALL_FILES);
   Parent->ClearStatusBar();
 
   if (!Core::IsRunning())
     return;
 
-  std::string existing_map_file, writable_map_file, title_id_str;
-  bool map_exists = CBoot::FindMapFile(&existing_map_file, &writable_map_file, &title_id_str);
+  const std::string& title_id_str = SConfig::GetInstance().m_debugger_game_id;
+  std::string existing_map_file, writable_map_file;
+  bool map_exists = CBoot::FindMapFile(&existing_map_file, &writable_map_file);
   switch (event.GetId())
   {
   case IDM_CLEAR_SYMBOLS:
@@ -176,9 +186,14 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
     Host_NotifyMapLoaded();
     break;
   case IDM_SCAN_FUNCTIONS:
+    PPCAnalyst::FindFunctions(0x80000000, 0x81800000, &g_symbolDB);
+    // Update GUI
+    NotifyMapLoaded();
+    break;
+  case IDM_SCAN_SIGNATURES:
   {
     PPCAnalyst::FindFunctions(0x80000000, 0x81800000, &g_symbolDB);
-    SignatureDB db;
+    SignatureDB db(SignatureDB::HandlerType::DSY);
     if (db.Load(File::GetSysDirectory() + TOTALDB))
     {
       db.Apply(&g_symbolDB);
@@ -189,9 +204,37 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
     {
       Parent->StatusBarMessage("'%s' not found, no symbol names generated", TOTALDB);
     }
-    // HLE::PatchFunctions();
     // Update GUI
     NotifyMapLoaded();
+    break;
+  }
+  case IDM_SCAN_RSO:
+  {
+    wxTextEntryDialog dialog(this, _("Enter the RSO module address:"));
+    if (dialog.ShowModal() == wxID_OK)
+    {
+      unsigned long address;
+      if (dialog.GetValue().ToULong(&address, 0) && address <= std::numeric_limits<u32>::max())
+      {
+        RSOChainView rso_chain;
+        if (rso_chain.Load(static_cast<u32>(address)))
+        {
+          rso_chain.Apply(&g_symbolDB);
+          // Update GUI
+          NotifyMapLoaded();
+        }
+        else
+        {
+          Parent->StatusBarMessage("Failed to load RSO module at %s",
+                                   dialog.GetValue().ToStdString().c_str());
+        }
+      }
+      else
+      {
+        Parent->StatusBarMessage("Invalid RSO module address: %s",
+                                 dialog.GetValue().ToStdString().c_str());
+      }
+    }
     break;
   }
   case IDM_LOAD_MAP_FILE:
@@ -199,7 +242,7 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
     {
       g_symbolDB.Clear();
       PPCAnalyst::FindFunctions(0x81300000, 0x81800000, &g_symbolDB);
-      SignatureDB db;
+      SignatureDB db(SignatureDB::HandlerType::DSY);
       if (db.Load(File::GetSysDirectory() + TOTALDB))
         db.Apply(&g_symbolDB);
       Parent->StatusBarMessage("'%s' not found, scanning for common functions instead",
@@ -246,7 +289,7 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
   }
   break;
   case IDM_SAVEMAPFILE:
-    g_symbolDB.SaveMap(writable_map_file);
+    g_symbolDB.SaveSymbolMap(writable_map_file);
     break;
   case IDM_SAVE_MAP_FILE_AS:
   {
@@ -256,12 +299,17 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
         wxFD_SAVE | wxFD_OVERWRITE_PROMPT, this);
 
     if (!path.IsEmpty())
-      g_symbolDB.SaveMap(WxStrToStr(path));
+      g_symbolDB.SaveSymbolMap(WxStrToStr(path));
   }
   break;
   case IDM_SAVE_MAP_FILE_WITH_CODES:
-    g_symbolDB.SaveMap(writable_map_file, true);
-    break;
+  {
+    // Format the name for the codes version
+    const std::string path =
+        writable_map_file.substr(0, writable_map_file.find_last_of(".")) + "_code.map";
+    g_symbolDB.SaveCodeMap(path);
+  }
+  break;
 
   case IDM_RENAME_SYMBOLS:
   {
@@ -273,7 +321,7 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
     if (!path.IsEmpty())
     {
       std::ifstream f;
-      OpenFStream(f, WxStrToStr(path), std::ios_base::in);
+      File::OpenFStream(f, WxStrToStr(path), std::ios_base::in);
 
       std::string line;
       while (std::getline(f, line))
@@ -289,7 +337,7 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
 
         Symbol* symbol = g_symbolDB.GetSymbolFromAddr(address);
         if (symbol)
-          symbol->name = line.substr(12);
+          symbol->Rename(line.substr(12));
       }
 
       Host_NotifyMapLoaded();
@@ -308,14 +356,14 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
       std::string prefix(WxStrToStr(input_prefix.GetValue()));
 
       wxString path = wxFileSelector(_("Save signature as"), File::GetSysDirectory(), wxEmptyString,
-                                     wxEmptyString, _("Dolphin Signature File (*.dsy)") +
-                                                        "|*.dsy|" + wxGetTranslation(wxALL_FILES),
+                                     wxEmptyString, signature_selector,
                                      wxFD_SAVE | wxFD_OVERWRITE_PROMPT, this);
       if (!path.IsEmpty())
       {
-        SignatureDB db;
-        db.Initialize(&g_symbolDB, prefix);
-        db.Save(WxStrToStr(path));
+        std::string save_path = WxStrToStr(path);
+        SignatureDB db(save_path);
+        db.Populate(&g_symbolDB, prefix);
+        db.Save(save_path);
         db.List();
       }
     }
@@ -331,17 +379,17 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
     {
       std::string prefix(WxStrToStr(input_prefix.GetValue()));
 
-      wxString path = wxFileSelector(
-          _("Append signature to"), File::GetSysDirectory(), wxEmptyString, wxEmptyString,
-          _("Dolphin Signature File (*.dsy)") + "|*.dsy|" + wxGetTranslation(wxALL_FILES),
-          wxFD_SAVE, this);
+      wxString path =
+          wxFileSelector(_("Append signature to"), File::GetSysDirectory(), wxEmptyString,
+                         wxEmptyString, signature_selector, wxFD_SAVE, this);
       if (!path.IsEmpty())
       {
-        SignatureDB db;
-        db.Initialize(&g_symbolDB, prefix);
+        std::string signature_path = WxStrToStr(path);
+        SignatureDB db(signature_path);
+        db.Populate(&g_symbolDB, prefix);
         db.List();
-        db.Load(WxStrToStr(path));
-        db.Save(WxStrToStr(path));
+        db.Load(signature_path);
+        db.Save(signature_path);
         db.List();
       }
     }
@@ -349,14 +397,14 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
   break;
   case IDM_USE_SIGNATURE_FILE:
   {
-    wxString path = wxFileSelector(
-        _("Apply signature file"), File::GetSysDirectory(), wxEmptyString, wxEmptyString,
-        _("Dolphin Signature File (*.dsy)") + "|*.dsy|" + wxGetTranslation(wxALL_FILES),
-        wxFD_OPEN | wxFD_FILE_MUST_EXIST, this);
+    wxString path =
+        wxFileSelector(_("Apply signature file"), File::GetSysDirectory(), wxEmptyString,
+                       wxEmptyString, signature_selector, wxFD_OPEN | wxFD_FILE_MUST_EXIST, this);
     if (!path.IsEmpty())
     {
-      SignatureDB db;
-      db.Load(WxStrToStr(path));
+      std::string load_path = WxStrToStr(path);
+      SignatureDB db(load_path);
+      db.Load(load_path);
       db.Apply(&g_symbolDB);
       db.List();
       NotifyMapLoaded();
@@ -365,25 +413,23 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
   break;
   case IDM_COMBINE_SIGNATURE_FILES:
   {
-    wxString path1 = wxFileSelector(
-        _("Choose priority input file"), File::GetSysDirectory(), wxEmptyString, wxEmptyString,
-        _("Dolphin Signature File (*.dsy)") + "|*.dsy|" + wxGetTranslation(wxALL_FILES),
-        wxFD_OPEN | wxFD_FILE_MUST_EXIST, this);
+    wxString path1 =
+        wxFileSelector(_("Choose priority input file"), File::GetSysDirectory(), wxEmptyString,
+                       wxEmptyString, signature_selector, wxFD_OPEN | wxFD_FILE_MUST_EXIST, this);
     if (!path1.IsEmpty())
     {
-      SignatureDB db;
-      wxString path2 = wxFileSelector(
-          _("Choose secondary input file"), File::GetSysDirectory(), wxEmptyString, wxEmptyString,
-          _("Dolphin Signature File (*.dsy)") + "|*.dsy|" + wxGetTranslation(wxALL_FILES),
-          wxFD_OPEN | wxFD_FILE_MUST_EXIST, this);
+      std::string load_path1 = WxStrToStr(path1);
+      SignatureDB db(load_path1);
+      wxString path2 =
+          wxFileSelector(_("Choose secondary input file"), File::GetSysDirectory(), wxEmptyString,
+                         wxEmptyString, signature_selector, wxFD_OPEN | wxFD_FILE_MUST_EXIST, this);
       if (!path2.IsEmpty())
       {
+        db.Load(load_path1);
         db.Load(WxStrToStr(path2));
-        db.Load(WxStrToStr(path1));
 
         path2 = wxFileSelector(_("Save combined output file as"), File::GetSysDirectory(),
-                               wxEmptyString, ".dsy", _("Dolphin Signature File (*.dsy)") +
-                                                          "|*.dsy|" + wxGetTranslation(wxALL_FILES),
+                               wxEmptyString, ".dsy", signature_selector,
                                wxFD_SAVE | wxFD_OVERWRITE_PROMPT, this);
         db.Save(WxStrToStr(path2));
         db.List();
@@ -398,20 +444,28 @@ void CCodeWindow::OnSymbolsMenu(wxCommandEvent& event)
   }
 }
 
+void CCodeWindow::ReloadSymbolListBox()
+{
+  symbols->Freeze();  // HyperIris: wx style fast filling
+  symbols->Clear();
+  const wxString filtering_string = m_symbol_filter_ctrl->GetValue().Trim().Trim(false);
+  for (const auto& symbol : g_symbolDB.Symbols())
+  {
+    if (symbol.second.name.find(filtering_string) == std::string::npos)
+      continue;
+    int idx = symbols->Append(StrToWxStr(symbol.second.name));
+    symbols->SetClientData(idx, (void*)&symbol.second);
+  }
+  symbols->Thaw();
+}
+
 void CCodeWindow::NotifyMapLoaded()
 {
   if (!codeview)
     return;
 
   g_symbolDB.FillInCallers();
-  symbols->Freeze();  // HyperIris: wx style fast filling
-  symbols->Clear();
-  for (const auto& symbol : g_symbolDB.Symbols())
-  {
-    int idx = symbols->Append(StrToWxStr(symbol.second.name));
-    symbols->SetClientData(idx, (void*)&symbol.second);
-  }
-  symbols->Thaw();
+  ReloadSymbolListBox();
   Repopulate();
 }
 
@@ -447,7 +501,18 @@ void CCodeWindow::OnChangeFont(wxCommandEvent& event)
   if (dialog.ShowModal() == wxID_OK)
     DebuggerFont = dialog.GetFontData().GetChosenFont();
 
+  UpdateFonts();
   // TODO: Send event to all panels that tells them to reload the font when it changes.
+}
+
+void CCodeWindow::OnBootToPauseSelected(wxCommandEvent& event)
+{
+  SConfig::GetInstance().bBootToPause = event.IsChecked();
+}
+
+void CCodeWindow::OnAutomaticStartSelected(wxCommandEvent& event)
+{
+  SConfig::GetInstance().bAutomaticStart = event.IsChecked();
 }
 
 // Toggle windows
@@ -466,7 +531,7 @@ void CCodeWindow::TogglePanel(int id, bool show)
   wxPanel* panel = GetUntypedPanel(id);
 
   // Not all the panels (i.e. CodeWindow) have corresponding menu options.
-  wxMenuItem* item = GetMenuBar()->FindItem(id);
+  wxMenuItem* item = GetParentMenuBar()->FindItem(id);
   if (item)
     item->Check(show);
 
@@ -477,7 +542,7 @@ void CCodeWindow::TogglePanel(int id, bool show)
       panel = CreateSiblingPanel(id);
     }
     Parent->DoAddPage(panel, iNbAffiliation[id - IDM_DEBUG_WINDOW_LIST_START],
-                      Parent->bFloatWindow[id - IDM_DEBUG_WINDOW_LIST_START]);
+                      Parent->m_float_window[id - IDM_DEBUG_WINDOW_LIST_START]);
   }
   else if (panel)  // Close
   {

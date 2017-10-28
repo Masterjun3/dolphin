@@ -42,8 +42,6 @@ public:
   public:
     virtual std::string GetName() const = 0;
     virtual ~Control() {}
-    bool InputGateOn();
-
     virtual Input* ToInput() { return nullptr; }
     virtual Output* ToOutput() { return nullptr; }
   };
@@ -59,15 +57,6 @@ public:
     // things like absolute axes/ absolute mouse position will override this
     virtual bool IsDetectable() { return true; }
     virtual ControlState GetState() const = 0;
-
-    ControlState GetGatedState()
-    {
-      if (InputGateOn())
-        return GetState();
-      else
-        return 0.0;
-    }
-
     Input* ToInput() override { return this; }
   };
 
@@ -81,13 +70,6 @@ public:
   public:
     virtual ~Output() {}
     virtual void SetState(ControlState state) = 0;
-
-    void SetGatedState(ControlState state)
-    {
-      if (InputGateOn())
-        SetState(state);
-    }
-
     Output* ToOutput() override { return this; }
   };
 
@@ -154,8 +136,12 @@ public:
   void FromDevice(const Device* const dev);
   void FromString(const std::string& str);
   std::string ToString() const;
+
   bool operator==(const DeviceQualifier& devq) const;
-  bool operator==(const Device* const dev) const;
+  bool operator!=(const DeviceQualifier& devq) const;
+
+  bool operator==(const Device* dev) const;
+  bool operator!=(const Device* dev) const;
 
   std::string source;
   int cid;

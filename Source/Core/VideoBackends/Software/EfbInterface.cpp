@@ -8,9 +8,10 @@
 #include <cstddef>
 #include <cstring>
 
-#include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
+#include "Common/Swap.h"
+
 #include "VideoCommon/BPMemory.h"
 #include "VideoCommon/LookUpTables.h"
 #include "VideoCommon/PerfQueryBase.h"
@@ -81,7 +82,7 @@ static void SetPixelColorOnly(u32 offset, u8* rgb)
   break;
   case PEControl::RGB565_Z16:
   {
-    WARN_LOG(VIDEO, "RGB565_Z16 is not supported correctly yet");
+    INFO_LOG(VIDEO, "RGB565_Z16 is not supported correctly yet");
     u32 src = *(u32*)rgb;
     u32* dst = (u32*)&efb[offset];
     u32 val = *dst & 0xff000000;
@@ -122,7 +123,7 @@ static void SetPixelAlphaColor(u32 offset, u8* color)
   break;
   case PEControl::RGB565_Z16:
   {
-    WARN_LOG(VIDEO, "RGB565_Z16 is not supported correctly yet");
+    INFO_LOG(VIDEO, "RGB565_Z16 is not supported correctly yet");
     u32 src = *(u32*)color;
     u32* dst = (u32*)&efb[offset];
     u32 val = *dst & 0xff000000;
@@ -178,7 +179,7 @@ static void SetPixelDepth(u32 offset, u32 depth)
   break;
   case PEControl::RGB565_Z16:
   {
-    WARN_LOG(VIDEO, "RGB565_Z16 is not supported correctly yet");
+    INFO_LOG(VIDEO, "RGB565_Z16 is not supported correctly yet");
     u32* dst = (u32*)&efb[offset];
     u32 val = *dst & 0xff000000;
     val |= depth & 0x00ffffff;
@@ -205,7 +206,7 @@ static u32 GetPixelDepth(u32 offset)
   break;
   case PEControl::RGB565_Z16:
   {
-    WARN_LOG(VIDEO, "RGB565_Z16 is not supported correctly yet");
+    INFO_LOG(VIDEO, "RGB565_Z16 is not supported correctly yet");
     depth = (*(u32*)&efb[offset]) & 0x00ffffff;
   }
   break;

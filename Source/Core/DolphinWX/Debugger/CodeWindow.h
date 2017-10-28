@@ -7,7 +7,6 @@
 #include <array>
 
 #include <wx/aui/framemanager.h>
-#include <wx/bitmap.h>
 #include <wx/panel.h>
 
 #include "Common/CommonTypes.h"
@@ -29,6 +28,7 @@ class DolphinAuiToolBar;
 class wxListBox;
 class wxMenu;
 class wxMenuBar;
+class wxSearchCtrl;
 class wxToolBar;
 
 namespace Details
@@ -76,32 +76,21 @@ struct DebugPanelToID<GFXDebuggerPanel>
 class CCodeWindow : public wxPanel
 {
 public:
-  CCodeWindow(const SConfig& _LocalCoreStartupParameter, CFrame* parent, wxWindowID id = wxID_ANY,
-              const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize,
-              long style = wxTAB_TRAVERSAL | wxBORDER_NONE, const wxString& name = _("Code"));
+  explicit CCodeWindow(CFrame* parent, wxWindowID id = wxID_ANY,
+                       const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize,
+                       long style = wxTAB_TRAVERSAL | wxBORDER_NONE,
+                       const wxString& name = _("Code"));
   ~CCodeWindow();
 
   void Load();
   void Save();
 
-  // Parent interaction
-  wxMenuBar* GetMenuBar();
-  wxToolBar* GetToolBar();
-
-  bool UseInterpreter();
-  bool BootToPause();
-  bool AutomaticStart();
-  bool JITNoBlockCache();
-  bool JITNoBlockLinking();
   bool JumpToAddress(u32 address);
 
-  void Repopulate();
+  void Repopulate(bool refresh_codeview = true);
   void NotifyMapLoaded();
-  void PopulateToolbar(wxToolBar* toolBar);
-  void UpdateButtonStates();
   void OpenPages();
 
-  // Menu bar
   // FIXME: This belongs in a separate class.
   void TogglePanel(int id, bool show);
   wxPanel* GetUntypedPanel(int id) const;
@@ -131,15 +120,21 @@ public:
   int iNbAffiliation[IDM_DEBUG_WINDOW_LIST_END - IDM_DEBUG_WINDOW_LIST_START];
 
 private:
+  wxMenuBar* GetParentMenuBar();
+
   void OnCPUMode(wxCommandEvent& event);
 
   void OnChangeFont(wxCommandEvent& event);
 
   void OnCodeStep(wxCommandEvent& event);
   void OnAddrBoxChange(wxCommandEvent& event);
+  void OnSymbolFilterText(wxCommandEvent& event);
   void OnSymbolsMenu(wxCommandEvent& event);
   void OnJitMenu(wxCommandEvent& event);
   void OnProfilerMenu(wxCommandEvent& event);
+
+  void OnBootToPauseSelected(wxCommandEvent& event);
+  void OnAutomaticStartSelected(wxCommandEvent& event);
 
   void OnSymbolListChange(wxCommandEvent& event);
   void OnCallstackListChange(wxCommandEvent& event);
@@ -154,20 +149,21 @@ private:
   void StepOut();
   void ToggleBreakpoint();
 
+  void UpdateFonts();
   void UpdateLists();
   void UpdateCallstack();
 
-  void InitBitmaps();
-  wxPanel* CreateSiblingPanel(int id);
+  void ReloadSymbolListBox();
 
-  wxBitmap m_Bitmaps[Toolbar_Debug_Bitmap_Max];
+  wxPanel* CreateSiblingPanel(int id);
 
   // Sibling debugger panels
   // FIXME: This obviously belongs in some manager class above this one.
-  std::array<wxPanel*, IDM_DEBUG_WINDOW_LIST_END - IDM_DEBUG_WINDOW_LIST_START> m_sibling_panels;
+  std::array<wxPanel*, IDM_DEBUG_WINDOW_LIST_END - IDM_DEBUG_WINDOW_LIST_START> m_sibling_panels{};
 
   CFrame* Parent;
   CCodeView* codeview;
+  wxSearchCtrl* m_symbol_filter_ctrl;
   wxListBox* callstack;
   wxListBox* symbols;
   wxListBox* callers;

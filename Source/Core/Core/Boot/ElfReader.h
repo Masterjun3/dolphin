@@ -4,7 +4,14 @@
 
 #pragma once
 
+#include "Common/CommonTypes.h"
+#include "Core/Boot/Boot.h"
 #include "Core/Boot/ElfTypes.h"
+
+namespace File
+{
+class IOFile;
+}
 
 enum KnownElfTypes
 {
@@ -16,31 +23,24 @@ enum KnownElfTypes
 
 typedef int SectionID;
 
-class ElfReader
+class ElfReader final : public BootExecutableReader
 {
-private:
-  char* base;
-  u32* base32;
-
-  Elf32_Ehdr* header;
-  Elf32_Phdr* segments;
-  Elf32_Shdr* sections;
-
-  u32* sectionAddrs;
-  bool bRelocate;
-  u32 entryPoint;
-
 public:
-  ElfReader(void* ptr);
-  ~ElfReader() {}
+  explicit ElfReader(const std::string& filename);
+  explicit ElfReader(File::IOFile file);
+  explicit ElfReader(const std::vector<u8>& buffer);
+  ~ElfReader();
   u32 Read32(int off) const { return base32[off >> 2]; }
   // Quick accessors
   ElfType GetType() const { return (ElfType)(header->e_type); }
   ElfMachine GetMachine() const { return (ElfMachine)(header->e_machine); }
-  u32 GetEntryPoint() const { return entryPoint; }
+  u32 GetEntryPoint() const override { return entryPoint; }
   u32 GetFlags() const { return (u32)(header->e_flags); }
-  bool LoadIntoMemory();
-  bool LoadSymbols();
+  bool LoadIntoMemory(bool only_in_mem1 = false) const override;
+  bool LoadSymbols() const override;
+  // TODO: actually check for validity.
+  bool IsValid() const override { return true; }
+  bool IsWii() const override;
 
   int GetNumSegments() const { return (int)(header->e_phnum); }
   int GetNumSections() const { return (int)(header->e_shnum); }
@@ -55,11 +55,25 @@ public:
     else
       return nullptr;
   }
-  bool IsCodeSection(int section) const { return sections[section].sh_type == SHT_PROGBITS; }
-  const u8* GetSegmentPtr(int segment) { return GetPtr(segments[segment].p_offset); }
+  bool IsCodeSegment(int segment) const { return segments[segment].p_flags & PF_X; }
+  const u8* GetSegmentPtr(int segment) const { return GetPtr(segments[segment].p_offset); }
+  int GetSegmentSize(int segment) const { return segments[segment].p_filesz; }
   u32 GetSectionAddr(SectionID section) const { return sectionAddrs[section]; }
   int GetSectionSize(SectionID section) const { return sections[section].sh_size; }
   SectionID GetSectionByName(const char* name, int firstSection = 0) const;  //-1 for not found
 
   bool DidRelocate() const { return bRelocate; }
+private:
+  void Initialize(u8* bytes);
+
+  char* base;
+  u32* base32;
+
+  Elf32_Ehdr* header;
+  Elf32_Phdr* segments;
+  Elf32_Shdr* sections;
+
+  u32* sectionAddrs;
+  bool bRelocate;
+  u32 entryPoint;
 };

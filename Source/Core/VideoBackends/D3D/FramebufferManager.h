@@ -6,7 +6,9 @@
 
 #include <d3d11.h>
 #include <memory>
+#include <utility>
 
+#include "Common/CommonTypes.h"
 #include "VideoBackends/D3D/D3DTexture.h"
 #include "VideoCommon/FramebufferManagerBase.h"
 
@@ -58,7 +60,7 @@ struct XFBSource : public XFBSourceBase
 class FramebufferManager : public FramebufferManagerBase
 {
 public:
-  FramebufferManager();
+  FramebufferManager(int target_width, int target_height);
   ~FramebufferManager();
 
   static D3DTexture2D*& GetEFBColorTexture();
@@ -73,18 +75,15 @@ public:
   static D3DTexture2D*& GetResolvedEFBDepthTexture();
 
   static D3DTexture2D*& GetEFBColorTempTexture() { return m_efb.color_temp_tex; }
-  static void SwapReinterpretTexture()
-  {
-    D3DTexture2D* swaptex = GetEFBColorTempTexture();
-    m_efb.color_temp_tex = GetEFBColorTexture();
-    m_efb.color_tex = swaptex;
-  }
+  static void SwapReinterpretTexture();
+  static void SetIntegerEFBRenderTarget(bool enabled);
+  static void BindEFBRenderTarget(bool bind_depth = true);
 
 private:
   std::unique_ptr<XFBSourceBase> CreateXFBSource(unsigned int target_width,
                                                  unsigned int target_height,
                                                  unsigned int layers) override;
-  void GetTargetSize(unsigned int* width, unsigned int* height) override;
+  std::pair<u32, u32> GetTargetSize() const override;
 
   void CopyToRealXFB(u32 xfbAddr, u32 fbStride, u32 fbHeight, const EFBRectangle& sourceRc,
                      float Gamma) override;
@@ -92,6 +91,7 @@ private:
   static struct Efb
   {
     D3DTexture2D* color_tex;
+    ID3D11RenderTargetView* color_int_rtv;
     ID3D11Texture2D* color_staging_buf;
     D3DTexture2D* color_read_texture;
 
@@ -100,6 +100,7 @@ private:
     D3DTexture2D* depth_read_texture;
 
     D3DTexture2D* color_temp_tex;
+    ID3D11RenderTargetView* color_temp_int_rtv;
 
     D3DTexture2D* resolved_color_tex;
     D3DTexture2D* resolved_depth_tex;

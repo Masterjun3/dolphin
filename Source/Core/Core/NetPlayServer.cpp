@@ -3,31 +3,41 @@
 // Refer to the license.txt file included.
 
 #include "Core/NetPlayServer.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdio>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <unordered_set>
 #include <vector>
-#include "Common/Common.h"
+
 #include "Common/ENetUtil.h"
 #include "Common/FileUtil.h"
-#include "Common/IniFile.h"
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
 #include "Common/StringUtil.h"
+#include "Common/UPnP.h"
+#include "Common/Version.h"
 #include "Core/ConfigManager.h"
-#include "Core/HW/EXI_DeviceIPL.h"
 #include "Core/HW/Sram.h"
 #include "Core/NetPlayClient.h"  //for NetPlayUI
 #include "InputCommon/GCPadStatus.h"
 #if !defined(_WIN32)
 #include <sys/socket.h>
 #include <sys/types.h>
-#ifndef ANDROID
+#ifdef __HAIKU__
+#define _BSD_SOURCE
+#include <bsd/ifaddrs.h>
+#elif !defined ANDROID
 #include <ifaddrs.h>
 #endif
 #include <arpa/inet.h>
 #endif
 
-u64 g_netplay_initial_gctime = 1272737767;
+u64 g_netplay_initial_rtc = 1272737767;
 
 NetPlayServer::~NetPlayServer()
 {
@@ -50,16 +60,13 @@ NetPlayServer::~NetPlayServer()
   }
 
 #ifdef USE_UPNP
-  if (m_upnp_thread.joinable())
-    m_upnp_thread.join();
-  m_upnp_thread = std::thread(&NetPlayServer::unmapPortThread);
-  m_upnp_thread.join();
+  UPnP::StopPortmapping();
 #endif
 }
 
 // called from ---GUI--- thread
-NetPlayServer::NetPlayServer(const u16 port, bool traversal, const std::string& centralServer,
-                             u16 centralPort)
+NetPlayServer::NetPlayServer(const u16 port, const bool forward_port,
+                             const NetTraversalConfig& traversal_config)
 {
   //--use server time
   if (enet_initialize() != 0)
@@ -70,9 +77,10 @@ NetPlayServer::NetPlayServer(const u16 port, bool traversal, const std::string& 
   m_pad_map.fill(-1);
   m_wiimote_map.fill(-1);
 
-  if (traversal)
+  if (traversal_config.use_traversal)
   {
-    if (!EnsureTraversalClient(centralServer, centralPort, port))
+    if (!EnsureTraversalClient(traversal_config.traversal_host, traversal_config.traversal_port,
+                               port))
       return;
 
     g_TraversalClient->m_Client = this;
@@ -98,6 +106,11 @@ NetPlayServer::NetPlayServer(const u16 port, bool traversal, const std::string& 
     m_do_loop = true;
     m_thread = std::thread(&NetPlayServer::ThreadFunc, this);
     m_target_buffer_size = 5;
+
+#ifdef USE_UPNP
+    if (forward_port)
+      UPnP::TryPortmapping(port);
+#endif
   }
 }
 
@@ -129,7 +142,7 @@ void NetPlayServer::ThreadFunc()
     {
       {
         std::lock_guard<std::recursive_mutex> lkp(m_crit.players);
-        SendToClients(*(m_async_queue.Front().get()));
+        SendToClients(m_async_queue.Front());
       }
       m_async_queue.Pop();
     }
@@ -243,7 +256,7 @@ unsigned int NetPlayServer::OnConnect(ENetPeer* socket)
   std::string npver;
   rpac >> npver;
   // Dolphin netplay version
-  if (npver != scm_rev_git_str)
+  if (npver != Common::scm_rev_git_str)
     return CON_ERR_VERSION_MISMATCH;
 
   // game is currently running
@@ -342,7 +355,7 @@ unsigned int NetPlayServer::OnConnect(ENetPeer* socket)
 }
 
 // called from ---NETPLAY--- thread
-unsigned int NetPlayServer::OnDisconnect(Client& player)
+unsigned int NetPlayServer::OnDisconnect(const Client& player)
 {
   PlayerId pid = player.pid;
 
@@ -358,7 +371,7 @@ unsigned int NetPlayServer::OnDisconnect(Client& player)
         sf::Packet spac;
         spac << (MessageId)NP_MSG_DISABLE_GAME;
         // this thread doesn't need players lock
-        SendToClients(spac, -1);
+        SendToClients(spac, static_cast<PlayerId>(-1));
         break;
       }
     }
@@ -456,14 +469,14 @@ void NetPlayServer::AdjustPadBufferSize(unsigned int size)
   m_target_buffer_size = size;
 
   // tell clients to change buffer size
-  auto spac = std::make_unique<sf::Packet>();
-  *spac << static_cast<MessageId>(NP_MSG_PAD_BUFFER);
-  *spac << static_cast<u32>(m_target_buffer_size);
+  sf::Packet spac;
+  spac << static_cast<MessageId>(NP_MSG_PAD_BUFFER);
+  spac << static_cast<u32>(m_target_buffer_size);
 
   SendAsyncToClients(std::move(spac));
 }
 
-void NetPlayServer::SendAsyncToClients(std::unique_ptr<sf::Packet> packet)
+void NetPlayServer::SendAsyncToClients(sf::Packet&& packet)
 {
   {
     std::lock_guard<std::recursive_mutex> lkq(m_crit.async_queue_write);
@@ -723,10 +736,10 @@ void NetPlayServer::OnTraversalStateChanged()
 // called from ---GUI--- thread
 void NetPlayServer::SendChatMessage(const std::string& msg)
 {
-  auto spac = std::make_unique<sf::Packet>();
-  *spac << static_cast<MessageId>(NP_MSG_CHAT_MESSAGE);
-  *spac << static_cast<PlayerId>(0);  // server id always 0
-  *spac << msg;
+  sf::Packet spac;
+  spac << static_cast<MessageId>(NP_MSG_CHAT_MESSAGE);
+  spac << static_cast<PlayerId>(0);  // server id always 0
+  spac << msg;
 
   SendAsyncToClients(std::move(spac));
 }
@@ -739,9 +752,9 @@ bool NetPlayServer::ChangeGame(const std::string& game)
   m_selected_game = game;
 
   // send changed game to clients
-  auto spac = std::make_unique<sf::Packet>();
-  *spac << static_cast<MessageId>(NP_MSG_CHANGE_GAME);
-  *spac << game;
+  sf::Packet spac;
+  spac << static_cast<MessageId>(NP_MSG_CHANGE_GAME);
+  spac << game;
 
   SendAsyncToClients(std::move(spac));
 
@@ -751,9 +764,9 @@ bool NetPlayServer::ChangeGame(const std::string& game)
 // called from ---GUI--- thread
 bool NetPlayServer::ComputeMD5(const std::string& file_identifier)
 {
-  auto spac = std::make_unique<sf::Packet>();
-  *spac << static_cast<MessageId>(NP_MSG_COMPUTE_MD5);
-  *spac << file_identifier;
+  sf::Packet spac;
+  spac << static_cast<MessageId>(NP_MSG_COMPUTE_MD5);
+  spac << file_identifier;
 
   SendAsyncToClients(std::move(spac));
 
@@ -763,8 +776,8 @@ bool NetPlayServer::ComputeMD5(const std::string& file_identifier)
 // called from ---GUI--- thread
 bool NetPlayServer::AbortMD5()
 {
-  auto spac = std::make_unique<sf::Packet>();
-  *spac << static_cast<MessageId>(NP_MSG_MD5_ABORT);
+  sf::Packet spac;
+  spac << static_cast<MessageId>(NP_MSG_MD5_ABORT);
 
   SendAsyncToClients(std::move(spac));
 
@@ -789,30 +802,31 @@ bool NetPlayServer::StartGame()
   AdjustPadBufferSize(m_target_buffer_size);
 
   if (SConfig::GetInstance().bEnableCustomRTC)
-    g_netplay_initial_gctime = SConfig::GetInstance().m_customRTCValue;
+    g_netplay_initial_rtc = SConfig::GetInstance().m_customRTCValue;
   else
-    g_netplay_initial_gctime = Common::Timer::GetLocalTimeSinceJan1970();
+    g_netplay_initial_rtc = Common::Timer::GetLocalTimeSinceJan1970();
 
   // tell clients to start game
-  auto spac = std::make_unique<sf::Packet>();
-  *spac << (MessageId)NP_MSG_START_GAME;
-  *spac << m_current_game;
-  *spac << m_settings.m_CPUthread;
-  *spac << m_settings.m_CPUcore;
-  *spac << m_settings.m_EnableCheats;
-  *spac << m_settings.m_SelectedLanguage;
-  *spac << m_settings.m_OverrideGCLanguage;
-  *spac << m_settings.m_ProgressiveScan;
-  *spac << m_settings.m_PAL60;
-  *spac << m_settings.m_DSPEnableJIT;
-  *spac << m_settings.m_DSPHLE;
-  *spac << m_settings.m_WriteToMemcard;
-  *spac << m_settings.m_OCEnable;
-  *spac << m_settings.m_OCFactor;
-  *spac << m_settings.m_EXIDevice[0];
-  *spac << m_settings.m_EXIDevice[1];
-  *spac << (u32)g_netplay_initial_gctime;
-  *spac << (u32)(g_netplay_initial_gctime >> 32);
+  sf::Packet spac;
+  spac << (MessageId)NP_MSG_START_GAME;
+  spac << m_current_game;
+  spac << m_settings.m_CPUthread;
+  spac << m_settings.m_CPUcore;
+  spac << m_settings.m_EnableCheats;
+  spac << m_settings.m_SelectedLanguage;
+  spac << m_settings.m_OverrideGCLanguage;
+  spac << m_settings.m_ProgressiveScan;
+  spac << m_settings.m_PAL60;
+  spac << m_settings.m_DSPEnableJIT;
+  spac << m_settings.m_DSPHLE;
+  spac << m_settings.m_WriteToMemcard;
+  spac << m_settings.m_CopyWiiSave;
+  spac << m_settings.m_OCEnable;
+  spac << m_settings.m_OCFactor;
+  spac << m_settings.m_EXIDevice[0];
+  spac << m_settings.m_EXIDevice[1];
+  spac << (u32)g_netplay_initial_rtc;
+  spac << (u32)(g_netplay_initial_rtc >> 32);
 
   SendAsyncToClients(std::move(spac));
 
@@ -822,7 +836,7 @@ bool NetPlayServer::StartGame()
 }
 
 // called from multiple threads
-void NetPlayServer::SendToClients(sf::Packet& packet, const PlayerId skip_pid)
+void NetPlayServer::SendToClients(const sf::Packet& packet, const PlayerId skip_pid)
 {
   for (auto& p : m_players)
   {
@@ -833,7 +847,7 @@ void NetPlayServer::SendToClients(sf::Packet& packet, const PlayerId skip_pid)
   }
 }
 
-void NetPlayServer::Send(ENetPeer* socket, sf::Packet& packet)
+void NetPlayServer::Send(ENetPeer* socket, const sf::Packet& packet)
 {
   ENetPacket* epac =
       enet_packet_create(packet.getData(), packet.getDataSize(), ENET_PACKET_FLAG_RELIABLE);
@@ -852,7 +866,7 @@ void NetPlayServer::KickPlayer(PlayerId player)
   }
 }
 
-u16 NetPlayServer::GetPort()
+u16 NetPlayServer::GetPort() const
 {
   return m_server->address.port;
 }
@@ -863,7 +877,7 @@ void NetPlayServer::SetNetPlayUI(NetPlayUI* dialog)
 }
 
 // called from ---GUI--- thread
-std::unordered_set<std::string> NetPlayServer::GetInterfaceSet()
+std::unordered_set<std::string> NetPlayServer::GetInterfaceSet() const
 {
   std::unordered_set<std::string> result;
   auto lst = GetInterfaceListInternal();
@@ -873,7 +887,7 @@ std::unordered_set<std::string> NetPlayServer::GetInterfaceSet()
 }
 
 // called from ---GUI--- thread
-std::string NetPlayServer::GetInterfaceHost(const std::string& inter)
+std::string NetPlayServer::GetInterfaceHost(const std::string& inter) const
 {
   char buf[16];
   sprintf(buf, ":%d", GetPort());
@@ -889,7 +903,7 @@ std::string NetPlayServer::GetInterfaceHost(const std::string& inter)
 }
 
 // called from ---GUI--- thread
-std::vector<std::pair<std::string, std::string>> NetPlayServer::GetInterfaceListInternal()
+std::vector<std::pair<std::string, std::string>> NetPlayServer::GetInterfaceListInternal() const
 {
   std::vector<std::pair<std::string, std::string>> result;
 #if defined(_WIN32)
@@ -925,159 +939,3 @@ std::vector<std::pair<std::string, std::string>> NetPlayServer::GetInterfaceList
     result.emplace_back(std::make_pair("!local!", "127.0.0.1"));
   return result;
 }
-
-#ifdef USE_UPNP
-#include <miniupnpc.h>
-#include <miniwget.h>
-#include <upnpcommands.h>
-
-struct UPNPUrls NetPlayServer::m_upnp_urls;
-struct IGDdatas NetPlayServer::m_upnp_data;
-std::string NetPlayServer::m_upnp_ourip;
-u16 NetPlayServer::m_upnp_mapped = 0;
-bool NetPlayServer::m_upnp_inited = false;
-bool NetPlayServer::m_upnp_error = false;
-std::thread NetPlayServer::m_upnp_thread;
-
-// called from ---GUI--- thread
-void NetPlayServer::TryPortmapping(u16 port)
-{
-  if (m_upnp_thread.joinable())
-    m_upnp_thread.join();
-  m_upnp_thread = std::thread(&NetPlayServer::mapPortThread, port);
-}
-
-// UPnP thread: try to map a port
-void NetPlayServer::mapPortThread(const u16 port)
-{
-  if (!m_upnp_inited)
-    if (!initUPnP())
-      goto fail;
-
-  if (!UPnPMapPort(m_upnp_ourip, port))
-    goto fail;
-
-  NOTICE_LOG(NETPLAY, "Successfully mapped port %d to %s.", port, m_upnp_ourip.c_str());
-  return;
-fail:
-  WARN_LOG(NETPLAY, "Failed to map port %d to %s.", port, m_upnp_ourip.c_str());
-  return;
-}
-
-// UPnP thread: try to unmap a port
-void NetPlayServer::unmapPortThread()
-{
-  if (m_upnp_mapped > 0)
-    UPnPUnmapPort(m_upnp_mapped);
-}
-
-// called from ---UPnP--- thread
-// discovers the IGD
-bool NetPlayServer::initUPnP()
-{
-  std::vector<UPNPDev*> igds;
-  int descXMLsize = 0, upnperror = 0;
-  char cIP[20];
-
-  // Don't init if already inited
-  if (m_upnp_inited)
-    return true;
-
-  // Don't init if it failed before
-  if (m_upnp_error)
-    return false;
-
-  memset(&m_upnp_urls, 0, sizeof(UPNPUrls));
-  memset(&m_upnp_data, 0, sizeof(IGDdatas));
-
-  // Find all UPnP devices
-  std::unique_ptr<UPNPDev, decltype(&freeUPNPDevlist)> devlist(nullptr, freeUPNPDevlist);
-#if MINIUPNPC_API_VERSION >= 14
-  devlist.reset(upnpDiscover(2000, nullptr, nullptr, 0, 0, 2, &upnperror));
-#else
-  devlist.reset(upnpDiscover(2000, nullptr, nullptr, 0, 0, &upnperror));
-#endif
-  if (!devlist)
-  {
-    WARN_LOG(NETPLAY, "An error occurred trying to discover UPnP devices.");
-
-    m_upnp_error = true;
-    m_upnp_inited = false;
-
-    return false;
-  }
-
-  // Look for the IGD
-  for (UPNPDev* dev = devlist.get(); dev; dev = dev->pNext)
-  {
-    if (strstr(dev->st, "InternetGatewayDevice"))
-      igds.push_back(dev);
-  }
-
-  for (const UPNPDev* dev : igds)
-  {
-    std::unique_ptr<char, decltype(&std::free)> descXML(nullptr, std::free);
-    int statusCode = 200;
-#if MINIUPNPC_API_VERSION >= 16
-    descXML.reset(static_cast<char*>(
-        miniwget_getaddr(dev->descURL, &descXMLsize, cIP, sizeof(cIP), 0, &statusCode)));
-#else
-    descXML.reset(
-        static_cast<char*>(miniwget_getaddr(dev->descURL, &descXMLsize, cIP, sizeof(cIP), 0)));
-#endif
-    if (descXML && statusCode == 200)
-    {
-      parserootdesc(descXML.get(), descXMLsize, &m_upnp_data);
-      GetUPNPUrls(&m_upnp_urls, &m_upnp_data, dev->descURL, 0);
-
-      m_upnp_ourip = cIP;
-
-      NOTICE_LOG(NETPLAY, "Got info from IGD at %s.", dev->descURL);
-      break;
-    }
-    else
-    {
-      WARN_LOG(NETPLAY, "Error getting info from IGD at %s.", dev->descURL);
-    }
-  }
-
-  return true;
-}
-
-// called from ---UPnP--- thread
-// Attempt to portforward!
-bool NetPlayServer::UPnPMapPort(const std::string& addr, const u16 port)
-{
-  if (m_upnp_mapped > 0)
-    UPnPUnmapPort(m_upnp_mapped);
-
-  std::string port_str = StringFromFormat("%d", port);
-  int result = UPNP_AddPortMapping(
-      m_upnp_urls.controlURL, m_upnp_data.first.servicetype, port_str.c_str(), port_str.c_str(),
-      addr.c_str(), (std::string("dolphin-emu UDP on ") + addr).c_str(), "UDP", nullptr, nullptr);
-
-  if (result != 0)
-    return false;
-
-  m_upnp_mapped = port;
-
-  return true;
-}
-
-// called from ---UPnP--- thread
-// Attempt to stop portforwarding.
-// --
-// NOTE: It is important that this happens! A few very crappy routers
-// apparently do not delete UPnP mappings on their own, so if you leave them
-// hanging, the NVRAM will fill with portmappings, and eventually all UPnP
-// requests will fail silently, with the only recourse being a factory reset.
-// --
-bool NetPlayServer::UPnPUnmapPort(const u16 port)
-{
-  std::string port_str = StringFromFormat("%d", port);
-  UPNP_DeletePortMapping(m_upnp_urls.controlURL, m_upnp_data.first.servicetype, port_str.c_str(),
-                         "UDP", nullptr);
-
-  return true;
-}
-#endif

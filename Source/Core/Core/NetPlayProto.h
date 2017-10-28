@@ -7,7 +7,7 @@
 #include <array>
 #include <vector>
 #include "Common/CommonTypes.h"
-#include "Core/HW/EXI_Device.h"
+#include "Core/HW/EXI/EXI_Device.h"
 
 struct NetSettings
 {
@@ -21,13 +21,28 @@ struct NetSettings
   bool m_DSPHLE;
   bool m_DSPEnableJIT;
   bool m_WriteToMemcard;
+  bool m_CopyWiiSave;
   bool m_OCEnable;
   float m_OCFactor;
-  TEXIDevices m_EXIDevice[2];
+  ExpansionInterface::TEXIDevices m_EXIDevice[2];
+};
+
+struct NetTraversalConfig
+{
+  NetTraversalConfig() = default;
+  NetTraversalConfig(bool use_traversal_, std::string traversal_host_, u16 traversal_port_)
+      : use_traversal{use_traversal_}, traversal_host{std::move(traversal_host_)},
+        traversal_port{traversal_port_}
+  {
+  }
+
+  bool use_traversal = false;
+  std::string traversal_host;
+  u16 traversal_port = 0;
 };
 
 extern NetSettings g_NetPlaySettings;
-extern u64 g_netplay_initial_gctime;
+extern u64 g_netplay_initial_rtc;
 
 struct Rpt : public std::vector<u8>
 {

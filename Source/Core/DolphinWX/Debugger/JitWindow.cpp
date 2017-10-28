@@ -47,11 +47,11 @@ CJitWindow::CJitWindow(wxWindow* parent, wxWindowID id, const wxPoint& pos, cons
   SetSizerAndFit(sizerBig);
 
 #if defined(_M_X86)
-  m_disassembler.reset(GetNewDisassembler("x86"));
+  m_disassembler = GetNewDisassembler("x86");
 #elif defined(_M_ARM_64)
-  m_disassembler.reset(GetNewDisassembler("aarch64"));
+  m_disassembler = GetNewDisassembler("aarch64");
 #else
-  m_disassembler.reset(GetNewDisassembler("UNK"));
+  m_disassembler = GetNewDisassembler("UNK");
 #endif
 }
 
@@ -87,6 +87,7 @@ void CJitWindow::Compare(u32 em_address)
   PPCAnalyst::CodeBlock code_block;
   PPCAnalyst::PPCAnalyzer analyzer;
   analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_CONDITIONAL_CONTINUE);
+  analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_BRANCH_FOLLOW);
 
   code_block.m_stats = &st;
   code_block.m_gpa = &gpa;
@@ -173,9 +174,14 @@ void JitBlockList::Init()
   InsertColumn(COLUMN_ADDRESS, _("Address"));
   InsertColumn(COLUMN_PPCSIZE, _("PPC Size"));
   InsertColumn(COLUMN_X86SIZE, _("x86 Size"));
+  // i18n: The symbolic name of a code block
   InsertColumn(COLUMN_NAME, _("Symbol"));
+  // i18n: These are the kinds of flags that a CPU uses (e.g. carry),
+  // not the kinds of flags that represent e.g. countries
   InsertColumn(COLUMN_FLAGS, _("Flags"));
+  // i18n: The number of times a code block has been executed
   InsertColumn(COLUMN_NUMEXEC, _("NumExec"));
+  // i18n: Performance cost, not monetary cost
   InsertColumn(COLUMN_COST, _("Cost"));
 }
 

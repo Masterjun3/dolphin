@@ -15,6 +15,8 @@
 
 #ifdef _WIN32
 
+#include <windows.h>
+
 struct StreamingVoiceContext;
 struct IXAudio2;
 struct IXAudio2MasteringVoice;
@@ -57,7 +59,7 @@ public:
   bool Start() override;
   void Stop() override;
 
-  void Clear(bool mute) override;
+  void SetRunning(bool running) override;
   void SetVolume(int volume) override;
 
   static bool isValid() { return InitLibrary(); }

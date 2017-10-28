@@ -2,10 +2,12 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
+#include "Common/Swap.h"
+
 #include "Core/HW/Memmap.h"
+
 #include "VideoCommon/CPMemory.h"
 #include "VideoCommon/DataReader.h"
 #include "VideoCommon/Fifo.h"
@@ -54,6 +56,7 @@ static void XFRegWritten(int transferSize, u32 baseAddress, DataReader src)
     case XFMEM_SETNUMCHAN:
       if (xfmem.numChan.numColorChans != (newValue & 3))
         g_vertex_manager->Flush();
+      VertexShaderManager::SetLightingConfigChanged();
       break;
 
     case XFMEM_SETCHAN0_AMBCOLOR:  // Channel Ambient Color
@@ -86,11 +89,13 @@ static void XFRegWritten(int transferSize, u32 baseAddress, DataReader src)
     case XFMEM_SETCHAN1_ALPHA:
       if (((u32*)&xfmem)[address] != (newValue & 0x7fff))
         g_vertex_manager->Flush();
+      VertexShaderManager::SetLightingConfigChanged();
       break;
 
     case XFMEM_DUALTEX:
       if (xfmem.dualTexTrans.enabled != (newValue & 1))
         g_vertex_manager->Flush();
+      VertexShaderManager::SetTexMatrixInfoChanged(-1);
       break;
 
     case XFMEM_SETMATRIXINDA:
@@ -144,6 +149,7 @@ static void XFRegWritten(int transferSize, u32 baseAddress, DataReader src)
     case XFMEM_SETTEXMTXINFO + 6:
     case XFMEM_SETTEXMTXINFO + 7:
       g_vertex_manager->Flush();
+      VertexShaderManager::SetTexMatrixInfoChanged(address - XFMEM_SETTEXMTXINFO);
 
       nextAddress = XFMEM_SETTEXMTXINFO + 8;
       break;
@@ -157,6 +163,7 @@ static void XFRegWritten(int transferSize, u32 baseAddress, DataReader src)
     case XFMEM_SETPOSMTXINFO + 6:
     case XFMEM_SETPOSMTXINFO + 7:
       g_vertex_manager->Flush();
+      VertexShaderManager::SetTexMatrixInfoChanged(address - XFMEM_SETPOSMTXINFO);
 
       nextAddress = XFMEM_SETPOSMTXINFO + 8;
       break;
@@ -286,12 +293,12 @@ void LoadIndexedXF(u32 val, int refarray)
 
 void PreprocessIndexedXF(u32 val, int refarray)
 {
-  int index = val >> 16;
-  int size = ((val >> 12) & 0xF) + 1;
+  const u32 index = val >> 16;
+  const u32 size = ((val >> 12) & 0xF) + 1;
 
-  u32* new_data = (u32*)Memory::GetPointer(g_preprocess_cp_state.array_bases[refarray] +
-                                           g_preprocess_cp_state.array_strides[refarray] * index);
+  const u8* new_data = Memory::GetPointer(g_preprocess_cp_state.array_bases[refarray] +
+                                          g_preprocess_cp_state.array_strides[refarray] * index);
 
-  size_t buf_size = size * sizeof(u32);
+  const size_t buf_size = size * sizeof(u32);
   Fifo::PushFifoAuxBuffer(new_data, buf_size);
 }

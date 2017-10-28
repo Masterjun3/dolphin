@@ -2,6 +2,12 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "DolphinWX/Config/GeneralConfigPane.h"
+
+#include <map>
+#include <string>
+#include <vector>
+
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
@@ -12,31 +18,25 @@
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 
+#include "Common/Common.h"
 #include "Core/Analytics.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/PowerPC/PowerPC.h"
-#include "DolphinWX/Config/GeneralConfigPane.h"
-#include "DolphinWX/Debugger/CodeWindow.h"
-#include "DolphinWX/Frame.h"
-#include "DolphinWX/Main.h"
+#include "DolphinWX/WxEventUtils.h"
+
+static const std::map<PowerPC::CPUCore, std::string> CPU_CORE_NAMES = {
+    {PowerPC::CORE_INTERPRETER, _trans("Interpreter (slowest)")},
+    {PowerPC::CORE_CACHEDINTERPRETER, _trans("Cached Interpreter (slower)")},
+    {PowerPC::CORE_JIT64, _trans("JIT Recompiler (recommended)")},
+    {PowerPC::CORE_JITARM64, _trans("JIT Arm64 (experimental)")},
+};
 
 GeneralConfigPane::GeneralConfigPane(wxWindow* parent, wxWindowID id) : wxPanel(parent, id)
 {
-  cpu_cores = {
-      {PowerPC::CORE_INTERPRETER, _("Interpreter (slowest)")},
-      {PowerPC::CORE_CACHEDINTERPRETER, _("Cached Interpreter (slower)")},
-#ifdef _M_X86_64
-      {PowerPC::CORE_JIT64, _("JIT Recompiler (recommended)")},
-      {PowerPC::CORE_JITIL64, _("JITIL Recompiler (slow, experimental)")},
-#elif defined(_M_ARM_64)
-      {PowerPC::CORE_JITARM64, _("JIT Arm64 (experimental)")},
-#endif
-  };
-
   InitializeGUI();
   LoadGUIValues();
-  RefreshGUI();
+  BindEvents();
 }
 
 void GeneralConfigPane::InitializeGUI()
@@ -50,12 +50,13 @@ void GeneralConfigPane::InitializeGUI()
       m_throttler_array_string.Add(wxString::Format(_("%i%%"), i));
   }
 
-  for (const CPUCore& cpu_core : cpu_cores)
-    m_cpu_engine_array_string.Add(cpu_core.name);
+  for (PowerPC::CPUCore cpu_core : PowerPC::AvailableCPUCores())
+    m_cpu_engine_array_string.Add(wxGetTranslation(CPU_CORE_NAMES.at(cpu_core)));
 
   m_dual_core_checkbox = new wxCheckBox(this, wxID_ANY, _("Enable Dual Core (speedup)"));
   m_cheats_checkbox = new wxCheckBox(this, wxID_ANY, _("Enable Cheats"));
   m_force_ntscj_checkbox = new wxCheckBox(this, wxID_ANY, _("Force Console as NTSC-J"));
+#if defined(USE_ANALYTICS) && USE_ANALYTICS
   m_analytics_checkbox = new wxCheckBox(this, wxID_ANY, _("Enable Usage Statistics Reporting"));
 #ifdef __APPLE__
   m_analytics_new_id = new wxButton(this, wxID_ANY, _("Generate a New Statistics Identity"),
@@ -63,10 +64,11 @@ void GeneralConfigPane::InitializeGUI()
 #else
   m_analytics_new_id = new wxButton(this, wxID_ANY, _("Generate a New Statistics Identity"));
 #endif
+#endif
   m_throttler_choice =
       new wxChoice(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, m_throttler_array_string);
   m_cpu_engine_radiobox =
-      new wxRadioBox(this, wxID_ANY, _("CPU Emulator Engine"), wxDefaultPosition, wxDefaultSize,
+      new wxRadioBox(this, wxID_ANY, _("CPU Emulation Engine"), wxDefaultPosition, wxDefaultSize,
                      m_cpu_engine_array_string, 0, wxRA_SPECIFY_ROWS);
 
   m_dual_core_checkbox->SetToolTip(
@@ -76,6 +78,7 @@ void GeneralConfigPane::InitializeGUI()
   m_force_ntscj_checkbox->SetToolTip(
       _("Forces NTSC-J mode for using the Japanese ROM font.\nIf left unchecked, Dolphin defaults "
         "to NTSC-U and automatically enables this setting when playing Japanese games."));
+#if defined(USE_ANALYTICS) && USE_ANALYTICS
   m_analytics_checkbox->SetToolTip(
       _("Enables the collection and sharing of usage statistics data with the Dolphin development "
         "team. This data is used to improve the emulator and help us understand how our users "
@@ -84,18 +87,11 @@ void GeneralConfigPane::InitializeGUI()
       _("Usage statistics reporting uses a unique random per-machine identifier to distinguish "
         "users from one another. This button generates a new random identifier for this machine "
         "which is dissociated from the previous one."));
+#endif
+
   m_throttler_choice->SetToolTip(_("Limits the emulation speed to the specified percentage.\nNote "
                                    "that raising or lowering the emulation speed will also raise "
-                                   "or lower the audio pitch to prevent audio from stuttering."));
-
-  m_dual_core_checkbox->Bind(wxEVT_CHECKBOX, &GeneralConfigPane::OnDualCoreCheckBoxChanged, this);
-  m_cheats_checkbox->Bind(wxEVT_CHECKBOX, &GeneralConfigPane::OnCheatCheckBoxChanged, this);
-  m_force_ntscj_checkbox->Bind(wxEVT_CHECKBOX, &GeneralConfigPane::OnForceNTSCJCheckBoxChanged,
-                               this);
-  m_analytics_checkbox->Bind(wxEVT_CHECKBOX, &GeneralConfigPane::OnAnalyticsCheckBoxChanged, this);
-  m_analytics_new_id->Bind(wxEVT_BUTTON, &GeneralConfigPane::OnAnalyticsNewIdButtonClick, this);
-  m_throttler_choice->Bind(wxEVT_CHOICE, &GeneralConfigPane::OnThrottlerChoiceChanged, this);
-  m_cpu_engine_radiobox->Bind(wxEVT_RADIOBOX, &GeneralConfigPane::OnCPUEngineRadioBoxChanged, this);
+                                   "or lower the audio pitch unless audio stretching is enabled."));
 
   const int space5 = FromDIP(5);
 
@@ -116,6 +112,7 @@ void GeneralConfigPane::InitializeGUI()
   basic_settings_sizer->AddSpacer(space5);
   basic_settings_sizer->Add(throttler_sizer);
 
+#if defined(USE_ANALYTICS) && USE_ANALYTICS
   wxStaticBoxSizer* const analytics_sizer =
       new wxStaticBoxSizer(wxVERTICAL, this, _("Usage Statistics Reporting Settings"));
   analytics_sizer->AddSpacer(space5);
@@ -123,6 +120,7 @@ void GeneralConfigPane::InitializeGUI()
   analytics_sizer->AddSpacer(space5);
   analytics_sizer->Add(m_analytics_new_id, 0, wxLEFT | wxRIGHT, space5);
   analytics_sizer->AddSpacer(space5);
+#endif
 
   wxStaticBoxSizer* const advanced_settings_sizer =
       new wxStaticBoxSizer(wxVERTICAL, this, _("Advanced Settings"));
@@ -136,7 +134,9 @@ void GeneralConfigPane::InitializeGUI()
   main_sizer->AddSpacer(space5);
   main_sizer->Add(basic_settings_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, space5);
   main_sizer->AddSpacer(space5);
-  main_sizer->Add(analytics_sizer, 0, wxEXPAND | wxLEFT | wxLEFT, space5);
+#if defined(USE_ANALYTICS) && USE_ANALYTICS
+  main_sizer->Add(analytics_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, space5);
+#endif
   main_sizer->AddSpacer(space5);
   main_sizer->Add(advanced_settings_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, space5);
   main_sizer->AddSpacer(space5);
@@ -151,27 +151,45 @@ void GeneralConfigPane::LoadGUIValues()
   m_dual_core_checkbox->SetValue(startup_params.bCPUThread);
   m_cheats_checkbox->SetValue(startup_params.bEnableCheats);
   m_force_ntscj_checkbox->SetValue(startup_params.bForceNTSCJ);
+
+#if defined(USE_ANALYTICS) && USE_ANALYTICS
   m_analytics_checkbox->SetValue(startup_params.m_analytics_enabled);
+#endif
+
   u32 selection = std::lround(startup_params.m_EmulationSpeed * 10.0f);
   if (selection < m_throttler_array_string.size())
     m_throttler_choice->SetSelection(selection);
 
+  const std::vector<PowerPC::CPUCore>& cpu_cores = PowerPC::AvailableCPUCores();
   for (size_t i = 0; i < cpu_cores.size(); ++i)
   {
-    if (cpu_cores[i].CPUid == startup_params.iCPUCore)
+    if (cpu_cores[i] == startup_params.iCPUCore)
       m_cpu_engine_radiobox->SetSelection(i);
   }
 }
 
-void GeneralConfigPane::RefreshGUI()
+void GeneralConfigPane::BindEvents()
 {
-  if (Core::IsRunning())
-  {
-    m_dual_core_checkbox->Disable();
-    m_cheats_checkbox->Disable();
-    m_force_ntscj_checkbox->Disable();
-    m_cpu_engine_radiobox->Disable();
-  }
+  m_dual_core_checkbox->Bind(wxEVT_CHECKBOX, &GeneralConfigPane::OnDualCoreCheckBoxChanged, this);
+  m_dual_core_checkbox->Bind(wxEVT_UPDATE_UI, &WxEventUtils::OnEnableIfCoreNotRunning);
+
+  m_cheats_checkbox->Bind(wxEVT_CHECKBOX, &GeneralConfigPane::OnCheatCheckBoxChanged, this);
+  m_cheats_checkbox->Bind(wxEVT_UPDATE_UI, &WxEventUtils::OnEnableIfCoreNotRunning);
+
+  m_force_ntscj_checkbox->Bind(wxEVT_CHECKBOX, &GeneralConfigPane::OnForceNTSCJCheckBoxChanged,
+                               this);
+  m_force_ntscj_checkbox->Bind(wxEVT_UPDATE_UI, &WxEventUtils::OnEnableIfCoreNotRunning);
+
+#if defined(USE_ANALYTICS) && USE_ANALYTICS
+  m_analytics_checkbox->Bind(wxEVT_CHECKBOX, &GeneralConfigPane::OnAnalyticsCheckBoxChanged, this);
+
+  m_analytics_new_id->Bind(wxEVT_BUTTON, &GeneralConfigPane::OnAnalyticsNewIdButtonClick, this);
+#endif
+
+  m_throttler_choice->Bind(wxEVT_CHOICE, &GeneralConfigPane::OnThrottlerChoiceChanged, this);
+
+  m_cpu_engine_radiobox->Bind(wxEVT_RADIOBOX, &GeneralConfigPane::OnCPUEngineRadioBoxChanged, this);
+  m_cpu_engine_radiobox->Bind(wxEVT_UPDATE_UI, &WxEventUtils::OnEnableIfCoreNotRunning);
 }
 
 void GeneralConfigPane::OnDualCoreCheckBoxChanged(wxCommandEvent& event)
@@ -200,15 +218,7 @@ void GeneralConfigPane::OnThrottlerChoiceChanged(wxCommandEvent& event)
 
 void GeneralConfigPane::OnCPUEngineRadioBoxChanged(wxCommandEvent& event)
 {
-  const int selection = m_cpu_engine_radiobox->GetSelection();
-
-  if (main_frame->g_pCodeWindow)
-  {
-    bool using_interp = (SConfig::GetInstance().iCPUCore == PowerPC::CORE_INTERPRETER);
-    main_frame->g_pCodeWindow->GetMenuBar()->Check(IDM_INTERPRETER, using_interp);
-  }
-
-  SConfig::GetInstance().iCPUCore = cpu_cores[selection].CPUid;
+  SConfig::GetInstance().iCPUCore = PowerPC::AvailableCPUCores()[event.GetSelection()];
 }
 
 void GeneralConfigPane::OnAnalyticsCheckBoxChanged(wxCommandEvent& event)
@@ -220,5 +230,5 @@ void GeneralConfigPane::OnAnalyticsCheckBoxChanged(wxCommandEvent& event)
 void GeneralConfigPane::OnAnalyticsNewIdButtonClick(wxCommandEvent& event)
 {
   DolphinAnalytics::Instance()->GenerateNewIdentity();
-  wxMessageBox(_("New identity generated."), _("Identity generation"), wxICON_INFORMATION);
+  wxMessageBox(_("New identity generated."), _("Identity Generation"), wxICON_INFORMATION);
 }

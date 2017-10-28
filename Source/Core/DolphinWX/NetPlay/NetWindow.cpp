@@ -2,6 +2,8 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "DolphinWX/NetPlay/NetWindow.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <limits>
@@ -14,6 +16,7 @@
 #include <wx/choice.h>
 #include <wx/clipbrd.h>
 #include <wx/colour.h>
+#include <wx/config.h>
 #include <wx/dialog.h>
 #include <wx/frame.h>
 #include <wx/listbox.h>
@@ -29,13 +32,15 @@
 
 #include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"
+#include "Common/Config/Config.h"
 #include "Common/FifoQueue.h"
 #include "Common/FileUtil.h"
-#include "Common/IniFile.h"
 #include "Common/MsgHandler.h"
+#include "Common/StringUtil.h"
 
+#include "Core/Config/SYSCONFSettings.h"
 #include "Core/ConfigManager.h"
-#include "Core/HW/EXI_Device.h"
+#include "Core/HW/EXI/EXI_Device.h"
 #include "Core/NetPlayClient.h"
 #include "Core/NetPlayProto.h"
 #include "Core/NetPlayServer.h"
@@ -43,9 +48,7 @@
 #include "DolphinWX/Frame.h"
 #include "DolphinWX/GameListCtrl.h"
 #include "DolphinWX/ISOFile.h"
-#include "DolphinWX/Main.h"
 #include "DolphinWX/NetPlay/ChangeGameDialog.h"
-#include "DolphinWX/NetPlay/NetWindow.h"
 #include "DolphinWX/NetPlay/PadMapDialog.h"
 #include "DolphinWX/WxUtils.h"
 #include "MD5Dialog.h"
@@ -57,13 +60,13 @@ NetPlayServer* NetPlayDialog::netplay_server = nullptr;
 NetPlayClient* NetPlayDialog::netplay_client = nullptr;
 NetPlayDialog* NetPlayDialog::npd = nullptr;
 
-void NetPlayDialog::FillWithGameNames(wxListBox* game_lbox, const CGameListCtrl& game_list)
+void NetPlayDialog::FillWithGameNames(wxListBox* game_lbox, const GameListCtrl& game_list)
 {
   for (u32 i = 0; auto game = game_list.GetISO(i); ++i)
     game_lbox->Append(StrToWxStr(game->GetUniqueIdentifier()));
 }
 
-NetPlayDialog::NetPlayDialog(wxWindow* const parent, const CGameListCtrl* const game_list,
+NetPlayDialog::NetPlayDialog(wxWindow* const parent, const GameListCtrl* const game_list,
                              const std::string& game, const bool is_hosting)
     : wxFrame(parent, wxID_ANY, _("Dolphin NetPlay")), m_selected_game(game), m_start_btn(nullptr),
       m_host_label(nullptr), m_host_type_choice(nullptr), m_host_copy_btn(nullptr),
@@ -76,15 +79,11 @@ NetPlayDialog::NetPlayDialog(wxWindow* const parent, const CGameListCtrl* const 
 
   // Remember the window size and position for NetWindow
   {
-    IniFile inifile;
-    inifile.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
-    IniFile::Section& netplay_section = *inifile.GetOrCreateSection("NetPlay");
-
     int winPosX, winPosY, winWidth, winHeight;
-    netplay_section.Get("NetWindowPosX", &winPosX, std::numeric_limits<int>::min());
-    netplay_section.Get("NetWindowPosY", &winPosY, std::numeric_limits<int>::min());
-    netplay_section.Get("NetWindowWidth", &winWidth, -1);
-    netplay_section.Get("NetWindowHeight", &winHeight, -1);
+    wxConfig::Get()->Read("NetWindowPosX", &winPosX, std::numeric_limits<int>::min());
+    wxConfig::Get()->Read("NetWindowPosY", &winPosY, std::numeric_limits<int>::min());
+    wxConfig::Get()->Read("NetWindowWidth", &winWidth, -1);
+    wxConfig::Get()->Read("NetWindowHeight", &winHeight, -1);
 
     WxUtils::SetWindowSizeAndFitToScreen(this, wxPoint(winPosX, winPosY),
                                          wxSize(winWidth, winHeight), GetSize());
@@ -256,12 +255,15 @@ wxSizer* NetPlayDialog::CreateBottomGUI(wxWindow* parent)
     padbuf_spin->Bind(wxEVT_SPINCTRL, &NetPlayDialog::OnAdjustBuffer, this);
     padbuf_spin->SetMinSize(WxUtils::GetTextWidgetMinSize(padbuf_spin));
 
-    m_memcard_write = new wxCheckBox(parent, wxID_ANY, _("Write to memcards/SD"));
+    m_memcard_write = new wxCheckBox(parent, wxID_ANY, _("Write save/SD data"));
+
+    m_copy_wii_save = new wxCheckBox(parent, wxID_ANY, _("Load Wii Save"));
 
     bottom_szr->Add(m_start_btn, 0, wxALIGN_CENTER_VERTICAL);
     bottom_szr->Add(buffer_lbl, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, space5);
     bottom_szr->Add(padbuf_spin, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, space5);
     bottom_szr->Add(m_memcard_write, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, space5);
+    bottom_szr->Add(m_copy_wii_save, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, space5);
     bottom_szr->AddSpacer(space5);
   }
 
@@ -278,17 +280,10 @@ wxSizer* NetPlayDialog::CreateBottomGUI(wxWindow* parent)
 
 NetPlayDialog::~NetPlayDialog()
 {
-  IniFile inifile;
-  const std::string dolphin_ini = File::GetUserPath(F_DOLPHINCONFIG_IDX);
-  inifile.Load(dolphin_ini);
-  IniFile::Section& netplay_config = *inifile.GetOrCreateSection("NetPlay");
-
-  netplay_config.Set("NetWindowPosX", GetPosition().x);
-  netplay_config.Set("NetWindowPosY", GetPosition().y);
-  netplay_config.Set("NetWindowWidth", GetSize().GetWidth());
-  netplay_config.Set("NetWindowHeight", GetSize().GetHeight());
-
-  inifile.Save(dolphin_ini);
+  wxConfig::Get()->Write("NetWindowPosX", GetPosition().x);
+  wxConfig::Get()->Write("NetWindowPosY", GetPosition().y);
+  wxConfig::Get()->Write("NetWindowWidth", GetSize().GetWidth());
+  wxConfig::Get()->Write("NetWindowHeight", GetSize().GetHeight());
 
   if (netplay_client)
   {
@@ -323,11 +318,12 @@ void NetPlayDialog::GetNetSettings(NetSettings& settings)
   settings.m_EnableCheats = instance.bEnableCheats;
   settings.m_SelectedLanguage = instance.SelectedLanguage;
   settings.m_OverrideGCLanguage = instance.bOverrideGCLanguage;
-  settings.m_ProgressiveScan = instance.bProgressive;
-  settings.m_PAL60 = instance.bPAL60;
+  settings.m_ProgressiveScan = Config::Get(Config::SYSCONF_PROGRESSIVE_SCAN);
+  settings.m_PAL60 = Config::Get(Config::SYSCONF_PAL60);
   settings.m_DSPHLE = instance.bDSPHLE;
   settings.m_DSPEnableJIT = instance.m_DSPEnableJIT;
   settings.m_WriteToMemcard = m_memcard_write->GetValue();
+  settings.m_CopyWiiSave = m_copy_wii_save->GetValue();
   settings.m_OCEnable = instance.m_OCEnable;
   settings.m_OCFactor = instance.m_OCFactor;
   settings.m_EXIDevice[0] = instance.m_EXIDevice[0];
@@ -369,12 +365,19 @@ void NetPlayDialog::OnStart(wxCommandEvent&)
 
 void NetPlayDialog::BootGame(const std::string& filename)
 {
-  main_frame->BootGame(filename);
+  wxCommandEvent play_event{DOLPHIN_EVT_BOOT_SOFTWARE, GetId()};
+  play_event.SetString(StrToWxStr(filename));
+  play_event.SetEventObject(this);
+
+  AddPendingEvent(play_event);
 }
 
 void NetPlayDialog::StopGame()
 {
-  main_frame->DoStop();
+  wxCommandEvent stop_event{DOLPHIN_EVT_STOP_SOFTWARE, GetId()};
+  stop_event.SetEventObject(this);
+
+  AddPendingEvent(stop_event);
 }
 
 // NetPlayUI methods called from ---NETPLAY--- thread
@@ -386,7 +389,7 @@ void NetPlayDialog::Update()
 
 void NetPlayDialog::AppendChat(const std::string& msg)
 {
-  chat_msgs.Push(msg);
+  m_chat_msgs.Push(msg);
   // silly
   Update();
 }
@@ -406,6 +409,7 @@ void NetPlayDialog::OnMsgStartGame()
   {
     m_start_btn->Disable();
     m_memcard_write->Disable();
+    m_copy_wii_save->Disable();
     m_game_btn->Disable();
     m_player_config_btn->Disable();
   }
@@ -421,6 +425,7 @@ void NetPlayDialog::OnMsgStopGame()
   {
     m_start_btn->Enable();
     m_memcard_write->Enable();
+    m_copy_wii_save->Enable();
     m_game_btn->Enable();
     m_player_config_btn->Enable();
   }
@@ -454,19 +459,19 @@ void NetPlayDialog::OnConnectionLost()
   GetEventHandler()->AddPendingEvent(evt);
 }
 
-void NetPlayDialog::OnTraversalError(int error)
+void NetPlayDialog::OnTraversalError(TraversalClient::FailureReason error)
 {
   switch (error)
   {
-  case TraversalClient::BadHost:
+  case TraversalClient::FailureReason::BadHost:
     PanicAlertT("Couldn't look up central server");
     break;
-  case TraversalClient::VersionTooOld:
+  case TraversalClient::FailureReason::VersionTooOld:
     PanicAlertT("Dolphin is too old for traversal server");
     break;
-  case TraversalClient::ServerForgotAboutUs:
-  case TraversalClient::SocketSendError:
-  case TraversalClient::ResendTimeout:
+  case TraversalClient::FailureReason::ServerForgotAboutUs:
+  case TraversalClient::FailureReason::SocketSendError:
+  case TraversalClient::FailureReason::ResendTimeout:
     wxThreadEvent evt(wxEVT_THREAD, NP_GUI_EVT_TRAVERSAL_CONNECTION_ERROR);
     GetEventHandler()->AddPendingEvent(evt);
     break;
@@ -576,7 +581,7 @@ void NetPlayDialog::OnThread(wxThreadEvent& event)
   break;
   case NP_GUI_EVT_PAD_BUFFER_CHANGE:
   {
-    std::string msg = StringFromFormat("Pad buffer: %d", m_pad_buffer);
+    std::string msg = StringFromFormat("Buffer size: %d", m_pad_buffer);
 
     if (g_ActiveConfig.bShowNetPlayMessages)
     {
@@ -613,10 +618,10 @@ void NetPlayDialog::OnThread(wxThreadEvent& event)
   }
 
   // chat messages
-  while (chat_msgs.Size())
+  while (m_chat_msgs.Size())
   {
     std::string s;
-    chat_msgs.Pop(s);
+    m_chat_msgs.Pop(s);
     AddChatMessage(ChatMessageType::UserIn, s);
 
     if (g_ActiveConfig.bShowNetPlayMessages)

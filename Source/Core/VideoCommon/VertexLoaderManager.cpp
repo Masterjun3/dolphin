@@ -44,12 +44,6 @@ static VertexLoaderMap s_vertex_loader_map;
 
 u8* cached_arraybases[12];
 
-// Used in D3D12 backend, to populate input layouts used by cached-to-disk PSOs.
-NativeVertexFormatMap* GetNativeVertexFormatMap()
-{
-  return &s_native_vertex_map;
-}
-
 void Init()
 {
   MarkAllDirty();
@@ -98,7 +92,7 @@ struct entry
 };
 }
 
-void AppendListToString(std::string* dest)
+std::string VertexLoadersToString()
 {
   std::lock_guard<std::mutex> lk(s_vertex_loader_map_lock);
   std::vector<entry> entries;
@@ -106,25 +100,99 @@ void AppendListToString(std::string* dest)
   size_t total_size = 0;
   for (const auto& map_entry : s_vertex_loader_map)
   {
-    entry e;
-    map_entry.second->AppendToString(&e.text);
-    e.num_verts = map_entry.second->m_numLoadedVertices;
-    entries.push_back(e);
+    entry e = {map_entry.second->ToString(),
+               static_cast<u64>(map_entry.second->m_numLoadedVertices)};
+
     total_size += e.text.size() + 1;
+    entries.push_back(std::move(e));
   }
+
   sort(entries.begin(), entries.end());
-  dest->reserve(dest->size() + total_size);
+
+  std::string dest;
+  dest.reserve(total_size);
   for (const entry& entry : entries)
   {
-    *dest += entry.text;
-    *dest += '\n';
+    dest += entry.text;
+    dest += '\n';
   }
+
+  return dest;
 }
 
 void MarkAllDirty()
 {
   g_main_cp_state.attr_dirty = BitSet32::AllTrue(8);
   g_preprocess_cp_state.attr_dirty = BitSet32::AllTrue(8);
+}
+
+NativeVertexFormat* GetOrCreateMatchingFormat(const PortableVertexDeclaration& decl)
+{
+  auto iter = s_native_vertex_map.find(decl);
+  if (iter == s_native_vertex_map.end())
+  {
+    std::unique_ptr<NativeVertexFormat> fmt = g_vertex_manager->CreateNativeVertexFormat(decl);
+    auto ipair = s_native_vertex_map.emplace(decl, std::move(fmt));
+    iter = ipair.first;
+  }
+
+  return iter->second.get();
+}
+
+NativeVertexFormat* GetUberVertexFormat(const PortableVertexDeclaration& decl)
+{
+  // The padding in the structs can cause the memcmp() in the map to create duplicates.
+  // Avoid this by initializing the padding to zero.
+  PortableVertexDeclaration new_decl;
+  std::memset(&new_decl, 0, sizeof(new_decl));
+  new_decl.stride = decl.stride;
+
+  auto MakeDummyAttribute = [](AttributeFormat& attr, VarType type, int components, bool integer) {
+    attr.type = type;
+    attr.components = components;
+    attr.offset = 0;
+    attr.enable = true;
+    attr.integer = integer;
+  };
+  auto CopyAttribute = [](AttributeFormat& attr, const AttributeFormat& src) {
+    attr.type = src.type;
+    attr.components = src.components;
+    attr.offset = src.offset;
+    attr.enable = src.enable;
+    attr.integer = src.integer;
+  };
+
+  if (decl.position.enable)
+    CopyAttribute(new_decl.position, decl.position);
+  else
+    MakeDummyAttribute(new_decl.position, VAR_FLOAT, 1, false);
+  for (size_t i = 0; i < ArraySize(new_decl.normals); i++)
+  {
+    if (decl.normals[i].enable)
+      CopyAttribute(new_decl.normals[i], decl.normals[i]);
+    else
+      MakeDummyAttribute(new_decl.normals[i], VAR_FLOAT, 1, false);
+  }
+  for (size_t i = 0; i < ArraySize(new_decl.colors); i++)
+  {
+    if (decl.colors[i].enable)
+      CopyAttribute(new_decl.colors[i], decl.colors[i]);
+    else
+      MakeDummyAttribute(new_decl.colors[i], VAR_UNSIGNED_BYTE, 4, false);
+  }
+  for (size_t i = 0; i < ArraySize(new_decl.texcoords); i++)
+  {
+    if (decl.texcoords[i].enable)
+      CopyAttribute(new_decl.texcoords[i], decl.texcoords[i]);
+    else
+      MakeDummyAttribute(new_decl.texcoords[i], VAR_FLOAT, 1, false);
+  }
+  if (decl.posmtx.enable)
+    CopyAttribute(new_decl.posmtx, decl.posmtx);
+  else
+    MakeDummyAttribute(new_decl.posmtx, VAR_UNSIGNED_BYTE, 1, true);
+
+  return GetOrCreateMatchingFormat(new_decl);
 }
 
 static VertexLoaderBase* RefreshLoader(int vtx_attr_group, bool preprocess = false)
@@ -161,7 +229,7 @@ static VertexLoaderBase* RefreshLoader(int vtx_attr_group, bool preprocess = fal
       std::unique_ptr<NativeVertexFormat>& native = s_native_vertex_map[format];
       if (!native)
       {
-        native.reset(g_vertex_manager->CreateNativeVertexFormat(format));
+        native = g_vertex_manager->CreateNativeVertexFormat(format);
       }
       loader->m_native_vertex_format = native.get();
     }
@@ -202,6 +270,7 @@ int RunVertices(int vtx_attr_group, int primitive, int count, DataReader src, bo
   }
   s_current_vtx_fmt = loader->m_native_vertex_format;
   g_current_components = loader->m_native_components;
+  VertexShaderManager::SetVertexFormat(loader->m_native_components);
 
   // if cull mode is CULL_ALL, tell VertexManager to skip triangles and quads.
   // They still need to go through vertex loading, because we need to calculate a zfreeze refrence

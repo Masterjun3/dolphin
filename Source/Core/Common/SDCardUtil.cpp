@@ -41,12 +41,17 @@
 
 #include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
-#include "Common/FileUtil.h"
+#include "Common/File.h"
 #include "Common/Logging/Log.h"
 #include "Common/SDCardUtil.h"
 
 #ifndef _WIN32
 #include <unistd.h>  // for unlink()
+#endif
+
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4310)
 #endif
 
 /* Believe me, you *don't* want to change these constants !! */
@@ -223,7 +228,7 @@ bool SDCardCreate(u64 disk_size /*in MB*/, const std::string& filename)
   FILE* const f = file.GetHandle();
   if (!f)
   {
-    ERROR_LOG(COMMON, "Could not create file '%s', aborting...\n", filename.c_str());
+    ERROR_LOG(COMMON, "Could not create file '%s', aborting...", filename.c_str());
     return false;
   }
 
@@ -284,8 +289,12 @@ bool SDCardCreate(u64 disk_size /*in MB*/, const std::string& filename)
   return true;
 
 FailWrite:
-  ERROR_LOG(COMMON, "Could not write to '%s', aborting...\n", filename.c_str());
+  ERROR_LOG(COMMON, "Could not write to '%s', aborting...", filename.c_str());
   if (unlink(filename.c_str()) < 0)
-    ERROR_LOG(COMMON, "unlink(%s) failed\n%s", filename.c_str(), GetLastErrorMsg().c_str());
+    ERROR_LOG(COMMON, "unlink(%s) failed: %s", filename.c_str(), LastStrerrorString().c_str());
   return false;
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

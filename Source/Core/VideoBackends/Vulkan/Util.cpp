@@ -4,6 +4,7 @@
 
 #include "VideoBackends/Vulkan/Util.h"
 
+#include "Common/Align.h"
 #include "Common/Assert.h"
 #include "Common/CommonFuncs.h"
 #include "Common/MathUtil.h"
@@ -11,6 +12,7 @@
 
 #include "VideoBackends/Vulkan/CommandBufferManager.h"
 #include "VideoBackends/Vulkan/ObjectCache.h"
+#include "VideoBackends/Vulkan/ShaderCache.h"
 #include "VideoBackends/Vulkan/ShaderCompiler.h"
 #include "VideoBackends/Vulkan/StateTracker.h"
 #include "VideoBackends/Vulkan/StreamBuffer.h"
@@ -20,22 +22,13 @@ namespace Vulkan
 {
 namespace Util
 {
-size_t AlignValue(size_t value, size_t alignment)
-{
-  // Have to use mod rather than masking bits in case alignment is not a power of two.
-  size_t offset = value % alignment;
-  if (offset != 0)
-    value += (alignment - offset);
-  return value;
-}
-
 size_t AlignBufferOffset(size_t offset, size_t alignment)
 {
   // Assume an offset of zero is already aligned to a value larger than alignment.
   if (offset == 0)
     return 0;
 
-  return AlignValue(offset, alignment);
+  return Common::AlignUp(offset, alignment);
 }
 
 u32 MakeRGBA8Color(float r, float g, float b, float a)
@@ -56,6 +49,21 @@ bool IsDepthFormat(VkFormat format)
   case VK_FORMAT_D32_SFLOAT:
   case VK_FORMAT_D32_SFLOAT_S8_UINT:
     return true;
+  default:
+    return false;
+  }
+}
+
+bool IsCompressedFormat(VkFormat format)
+{
+  switch (format)
+  {
+  case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
+  case VK_FORMAT_BC2_UNORM_BLOCK:
+  case VK_FORMAT_BC3_UNORM_BLOCK:
+  case VK_FORMAT_BC7_UNORM_BLOCK:
+    return true;
+
   default:
     return false;
   }
@@ -82,6 +90,28 @@ VkFormat GetLinearFormat(VkFormat format)
   }
 }
 
+VkFormat GetVkFormatForHostTextureFormat(AbstractTextureFormat format)
+{
+  switch (format)
+  {
+  case AbstractTextureFormat::DXT1:
+    return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
+
+  case AbstractTextureFormat::DXT3:
+    return VK_FORMAT_BC2_UNORM_BLOCK;
+
+  case AbstractTextureFormat::DXT5:
+    return VK_FORMAT_BC3_UNORM_BLOCK;
+
+  case AbstractTextureFormat::BPTC:
+    return VK_FORMAT_BC7_UNORM_BLOCK;
+
+  case AbstractTextureFormat::RGBA8:
+  default:
+    return VK_FORMAT_R8G8B8A8_UNORM;
+  }
+}
+
 u32 GetTexelSize(VkFormat format)
 {
   // Only contains pixel formats we use.
@@ -99,10 +129,43 @@ u32 GetTexelSize(VkFormat format)
   case VK_FORMAT_B8G8R8A8_UNORM:
     return 4;
 
+  case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
+    return 8;
+
+  case VK_FORMAT_BC2_UNORM_BLOCK:
+  case VK_FORMAT_BC3_UNORM_BLOCK:
+  case VK_FORMAT_BC7_UNORM_BLOCK:
+    return 16;
+
   default:
     PanicAlert("Unhandled pixel format");
     return 1;
   }
+}
+
+u32 GetBlockSize(VkFormat format)
+{
+  switch (format)
+  {
+  case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
+  case VK_FORMAT_BC2_UNORM_BLOCK:
+  case VK_FORMAT_BC3_UNORM_BLOCK:
+  case VK_FORMAT_BC7_UNORM_BLOCK:
+    return 4;
+
+  default:
+    return 1;
+  }
+}
+
+VkRect2D ClampRect2D(const VkRect2D& rect, u32 width, u32 height)
+{
+  VkRect2D out;
+  out.offset.x = MathUtil::Clamp(rect.offset.x, 0, static_cast<int32_t>(width - 1));
+  out.offset.y = MathUtil::Clamp(rect.offset.y, 0, static_cast<int32_t>(height - 1));
+  out.extent.width = std::min(rect.extent.width, width - static_cast<uint32_t>(rect.offset.x));
+  out.extent.height = std::min(rect.extent.height, height - static_cast<uint32_t>(rect.offset.y));
+  return out;
 }
 
 VkBlendFactor GetAlphaBlendFactor(VkBlendFactor factor)
@@ -120,42 +183,6 @@ VkBlendFactor GetAlphaBlendFactor(VkBlendFactor factor)
   default:
     return factor;
   }
-}
-
-RasterizationState GetNoCullRasterizationState()
-{
-  RasterizationState state = {};
-  state.cull_mode = VK_CULL_MODE_NONE;
-  state.samples = VK_SAMPLE_COUNT_1_BIT;
-  state.per_sample_shading = VK_FALSE;
-  state.depth_clamp = VK_FALSE;
-  return state;
-}
-
-DepthStencilState GetNoDepthTestingDepthStencilState()
-{
-  DepthStencilState state = {};
-  state.test_enable = VK_FALSE;
-  state.write_enable = VK_FALSE;
-  state.compare_op = VK_COMPARE_OP_ALWAYS;
-  return state;
-}
-
-BlendState GetNoBlendingBlendState()
-{
-  BlendState state = {};
-  state.blend_enable = VK_FALSE;
-  state.blend_op = VK_BLEND_OP_ADD;
-  state.src_blend = VK_BLEND_FACTOR_ONE;
-  state.dst_blend = VK_BLEND_FACTOR_ZERO;
-  state.alpha_blend_op = VK_BLEND_OP_ADD;
-  state.src_alpha_blend = VK_BLEND_FACTOR_ONE;
-  state.dst_alpha_blend = VK_BLEND_FACTOR_ZERO;
-  state.logic_op_enable = VK_FALSE;
-  state.logic_op = VK_LOGIC_OP_CLEAR;
-  state.write_mask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-  return state;
 }
 
 void SetViewportAndScissor(VkCommandBuffer command_buffer, int x, int y, int width, int height,
@@ -195,13 +222,13 @@ void BufferMemoryBarrier(VkCommandBuffer command_buffer, VkBuffer buffer,
                        &buffer_info, 0, nullptr);
 }
 
-void ExecuteCurrentCommandsAndRestoreState(StateTracker* state_tracker, bool execute_off_thread,
-                                           bool wait_for_completion)
+void ExecuteCurrentCommandsAndRestoreState(bool execute_off_thread, bool wait_for_completion)
 {
-  state_tracker->EndRenderPass();
+  StateTracker::GetInstance()->EndRenderPass();
   g_command_buffer_mgr->ExecuteCommandBuffer(execute_off_thread, wait_for_completion);
-  state_tracker->InvalidateDescriptorSets();
-  state_tracker->SetPendingRebind();
+  StateTracker::GetInstance()->InvalidateDescriptorSets();
+  StateTracker::GetInstance()->InvalidateConstants();
+  StateTracker::GetInstance()->SetPendingRebind();
 }
 
 VkShaderModule CreateShaderModule(const u32* spv, size_t spv_word_count)
@@ -258,12 +285,24 @@ VkShaderModule CompileAndCreateFragmentShader(const std::string& source_code, bo
   return CreateShaderModule(code.data(), code.size());
 }
 
+VkShaderModule CompileAndCreateComputeShader(const std::string& source_code, bool prepend_header)
+{
+  ShaderCompiler::SPIRVCodeVector code;
+  if (!ShaderCompiler::CompileComputeShader(&code, source_code.c_str(), source_code.length(),
+                                            prepend_header))
+  {
+    return VK_NULL_HANDLE;
+  }
+
+  return CreateShaderModule(code.data(), code.size());
+}
+
 }  // namespace Util
 
 UtilityShaderDraw::UtilityShaderDraw(VkCommandBuffer command_buffer,
                                      VkPipelineLayout pipeline_layout, VkRenderPass render_pass,
                                      VkShaderModule vertex_shader, VkShaderModule geometry_shader,
-                                     VkShaderModule pixel_shader)
+                                     VkShaderModule pixel_shader, PrimitiveType primitive)
     : m_command_buffer(command_buffer)
 {
   // Populate minimal pipeline state
@@ -273,16 +312,16 @@ UtilityShaderDraw::UtilityShaderDraw(VkCommandBuffer command_buffer,
   m_pipeline_info.vs = vertex_shader;
   m_pipeline_info.gs = geometry_shader;
   m_pipeline_info.ps = pixel_shader;
-  m_pipeline_info.rasterization_state.bits = Util::GetNoCullRasterizationState().bits;
-  m_pipeline_info.depth_stencil_state.bits = Util::GetNoDepthTestingDepthStencilState().bits;
-  m_pipeline_info.blend_state.bits = Util::GetNoBlendingBlendState().bits;
-  m_pipeline_info.primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  m_pipeline_info.rasterization_state.hex = RenderState::GetNoCullRasterizationState().hex;
+  m_pipeline_info.rasterization_state.primitive = primitive;
+  m_pipeline_info.depth_state.hex = RenderState::GetNoDepthTestingDepthStencilState().hex;
+  m_pipeline_info.blend_state.hex = RenderState::GetNoBlendingBlendState().hex;
+  m_pipeline_info.multisampling_state.per_sample_shading = false;
+  m_pipeline_info.multisampling_state.samples = 1;
 }
 
-UtilityShaderVertex* UtilityShaderDraw::ReserveVertices(VkPrimitiveTopology topology, size_t count)
+UtilityShaderVertex* UtilityShaderDraw::ReserveVertices(size_t count)
 {
-  m_pipeline_info.primitive_topology = topology;
-
   if (!g_object_cache->GetUtilityShaderVertexBuffer()->ReserveMemory(
           sizeof(UtilityShaderVertex) * count, sizeof(UtilityShaderVertex), true, true, true))
     PanicAlert("Failed to allocate space for vertices in backend shader");
@@ -300,10 +339,9 @@ void UtilityShaderDraw::CommitVertices(size_t count)
   m_vertex_count = static_cast<uint32_t>(count);
 }
 
-void UtilityShaderDraw::UploadVertices(VkPrimitiveTopology topology, UtilityShaderVertex* vertices,
-                                       size_t count)
+void UtilityShaderDraw::UploadVertices(UtilityShaderVertex* vertices, size_t count)
 {
-  UtilityShaderVertex* upload_vertices = ReserveVertices(topology, count);
+  UtilityShaderVertex* upload_vertices = ReserveVertices(count);
   memcpy(upload_vertices, vertices, sizeof(UtilityShaderVertex) * count);
   CommitVertices(count);
 }
@@ -364,19 +402,33 @@ void UtilityShaderDraw::SetPSSampler(size_t index, VkImageView view, VkSampler s
   m_ps_samplers[index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
+void UtilityShaderDraw::SetPSTexelBuffer(VkBufferView view)
+{
+  // Should only be used with the texture conversion pipeline layout.
+  _assert_(m_pipeline_info.pipeline_layout ==
+           g_object_cache->GetPipelineLayout(PIPELINE_LAYOUT_TEXTURE_CONVERSION));
+
+  m_ps_texel_buffer = view;
+}
+
 void UtilityShaderDraw::SetRasterizationState(const RasterizationState& state)
 {
-  m_pipeline_info.rasterization_state.bits = state.bits;
+  m_pipeline_info.rasterization_state.hex = state.hex;
 }
 
-void UtilityShaderDraw::SetDepthStencilState(const DepthStencilState& state)
+void UtilityShaderDraw::SetMultisamplingState(const MultisamplingState& state)
 {
-  m_pipeline_info.depth_stencil_state.bits = state.bits;
+  m_pipeline_info.multisampling_state.hex = state.hex;
 }
 
-void UtilityShaderDraw::SetBlendState(const BlendState& state)
+void UtilityShaderDraw::SetDepthState(const DepthState& state)
 {
-  m_pipeline_info.blend_state.bits = state.bits;
+  m_pipeline_info.depth_state.hex = state.hex;
+}
+
+void UtilityShaderDraw::SetBlendState(const BlendingState& state)
+{
+  m_pipeline_info.blend_state.hex = state.hex;
 }
 
 void UtilityShaderDraw::BeginRenderPass(VkFramebuffer framebuffer, const VkRect2D& region,
@@ -425,7 +477,7 @@ void UtilityShaderDraw::DrawQuad(int x, int y, int width, int height, float z)
   vertices[3].SetColor(1.0f, 1.0f, 1.0f, 1.0f);
 
   Util::SetViewportAndScissor(m_command_buffer, x, y, width, height);
-  UploadVertices(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, vertices, ArraySize(vertices));
+  UploadVertices(vertices, ArraySize(vertices));
   Draw();
 }
 
@@ -454,7 +506,7 @@ void UtilityShaderDraw::DrawQuad(int dst_x, int dst_y, int dst_width, int dst_he
   vertices[3].SetColor(1.0f, 1.0f, 1.0f, 1.0f);
 
   Util::SetViewportAndScissor(m_command_buffer, dst_x, dst_y, dst_width, dst_height);
-  UploadVertices(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, vertices, ArraySize(vertices));
+  UploadVertices(vertices, ArraySize(vertices));
   Draw();
 }
 
@@ -481,7 +533,7 @@ void UtilityShaderDraw::DrawColoredQuad(int x, int y, int width, int height, u32
   vertices[3].SetColor(color);
 
   Util::SetViewportAndScissor(m_command_buffer, x, y, width, height);
-  UploadVertices(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, vertices, ArraySize(vertices));
+  UploadVertices(vertices, ArraySize(vertices));
   Draw();
 }
 
@@ -490,11 +542,9 @@ void UtilityShaderDraw::SetViewportAndScissor(int x, int y, int width, int heigh
   Util::SetViewportAndScissor(m_command_buffer, x, y, width, height, 0.0f, 1.0f);
 }
 
-void UtilityShaderDraw::DrawWithoutVertexBuffer(VkPrimitiveTopology primitive_topology,
-                                                u32 vertex_count)
+void UtilityShaderDraw::DrawWithoutVertexBuffer(u32 vertex_count)
 {
   m_pipeline_info.vertex_format = nullptr;
-  m_pipeline_info.primitive_topology = primitive_topology;
 
   BindDescriptors();
   if (!BindPipeline())
@@ -511,9 +561,8 @@ void UtilityShaderDraw::BindVertexBuffer()
 void UtilityShaderDraw::BindDescriptors()
 {
   // TODO: This method is a mess, clean it up
-  std::array<VkDescriptorSet, NUM_DESCRIPTOR_SETS> bind_descriptor_sets = {};
-  std::array<VkWriteDescriptorSet, NUM_UBO_DESCRIPTOR_SET_BINDINGS + NUM_PIXEL_SHADER_SAMPLERS>
-      set_writes = {};
+  std::array<VkDescriptorSet, NUM_DESCRIPTOR_SET_BIND_POINTS> bind_descriptor_sets = {};
+  std::array<VkWriteDescriptorSet, NUM_UBO_DESCRIPTOR_SET_BINDINGS + 1> set_writes = {};
   uint32_t num_set_writes = 0;
 
   VkDescriptorBufferInfo dummy_uniform_buffer = {
@@ -523,7 +572,7 @@ void UtilityShaderDraw::BindDescriptors()
   if (m_vs_uniform_buffer.buffer != VK_NULL_HANDLE || m_ps_uniform_buffer.buffer != VK_NULL_HANDLE)
   {
     VkDescriptorSet set = g_command_buffer_mgr->AllocateDescriptorSet(
-        g_object_cache->GetDescriptorSetLayout(DESCRIPTOR_SET_UNIFORM_BUFFERS));
+        g_object_cache->GetDescriptorSetLayout(DESCRIPTOR_SET_LAYOUT_UNIFORM_BUFFERS));
     if (set == VK_NULL_HANDLE)
       PanicAlert("Failed to allocate descriptor set for utility draw");
 
@@ -552,7 +601,7 @@ void UtilityShaderDraw::BindDescriptors()
                                                          &dummy_uniform_buffer,
         nullptr};
 
-    bind_descriptor_sets[DESCRIPTOR_SET_UNIFORM_BUFFERS] = set;
+    bind_descriptor_sets[DESCRIPTOR_SET_LAYOUT_UNIFORM_BUFFERS] = set;
   }
 
   // PS samplers
@@ -570,65 +619,98 @@ void UtilityShaderDraw::BindDescriptors()
   // Check if we have any at all, skip the binding process entirely if we don't
   if (first_active_sampler != NUM_PIXEL_SHADER_SAMPLERS)
   {
-    // Allocate a new descriptor set
-    VkDescriptorSet set = g_command_buffer_mgr->AllocateDescriptorSet(
-        g_object_cache->GetDescriptorSetLayout(DESCRIPTOR_SET_PIXEL_SHADER_SAMPLERS));
-    if (set == VK_NULL_HANDLE)
-      PanicAlert("Failed to allocate descriptor set for utility draw");
-
+    // We need to fill it with non-empty images.
     for (size_t i = 0; i < NUM_PIXEL_SHADER_SAMPLERS; i++)
     {
-      const VkDescriptorImageInfo& info = m_ps_samplers[i];
-      if (info.imageView != VK_NULL_HANDLE && info.sampler != VK_NULL_HANDLE)
+      if (m_ps_samplers[i].imageView == VK_NULL_HANDLE)
       {
-        set_writes[num_set_writes++] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                                        nullptr,
-                                        set,
-                                        static_cast<uint32_t>(i),
-                                        0,
-                                        1,
-                                        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                        &info,
-                                        nullptr,
-                                        nullptr};
+        m_ps_samplers[i].imageView = g_object_cache->GetDummyImageView();
+        m_ps_samplers[i].sampler = g_object_cache->GetPointSampler();
       }
     }
 
-    bind_descriptor_sets[DESCRIPTOR_SET_PIXEL_SHADER_SAMPLERS] = set;
+    // Allocate a new descriptor set
+    VkDescriptorSet set = g_command_buffer_mgr->AllocateDescriptorSet(
+        g_object_cache->GetDescriptorSetLayout(DESCRIPTOR_SET_LAYOUT_PIXEL_SHADER_SAMPLERS));
+    if (set == VK_NULL_HANDLE)
+      PanicAlert("Failed to allocate descriptor set for utility draw");
+
+    set_writes[num_set_writes++] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                    nullptr,
+                                    set,
+                                    0,
+                                    0,
+                                    static_cast<u32>(NUM_PIXEL_SHADER_SAMPLERS),
+                                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                    m_ps_samplers.data(),
+                                    nullptr,
+                                    nullptr};
+
+    bind_descriptor_sets[DESCRIPTOR_SET_BIND_POINT_PIXEL_SHADER_SAMPLERS] = set;
   }
 
   vkUpdateDescriptorSets(g_vulkan_context->GetDevice(), num_set_writes, set_writes.data(), 0,
                          nullptr);
 
-  // Bind only the sets we updated
-  if (bind_descriptor_sets[0] != VK_NULL_HANDLE && bind_descriptor_sets[1] == VK_NULL_HANDLE)
+  if (m_ps_texel_buffer != VK_NULL_HANDLE)
   {
-    // UBO only
+    // TODO: Handle case where this fails.
+    // This'll only be when we do over say, 1024 allocations per frame, which shouldn't happen.
+    // TODO: Execute the command buffer, reset render passes and then try again.
+    VkDescriptorSet set = g_command_buffer_mgr->AllocateDescriptorSet(
+        g_object_cache->GetDescriptorSetLayout(DESCRIPTOR_SET_LAYOUT_TEXEL_BUFFERS));
+    if (set == VK_NULL_HANDLE)
+    {
+      PanicAlert("Failed to allocate texel buffer descriptor set for utility draw");
+      return;
+    }
+
+    VkWriteDescriptorSet set_write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                      nullptr,
+                                      set,
+                                      0,
+                                      0,
+                                      1,
+                                      VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,
+                                      nullptr,
+                                      nullptr,
+                                      &m_ps_texel_buffer};
+    vkUpdateDescriptorSets(g_vulkan_context->GetDevice(), 1, &set_write, 0, nullptr);
+    bind_descriptor_sets[DESCRIPTOR_SET_BIND_POINT_STORAGE_OR_TEXEL_BUFFER] = set;
+  }
+
+  // Fast path when there are no gaps in the set bindings
+  u32 bind_point_index;
+  for (bind_point_index = 0; bind_point_index < NUM_DESCRIPTOR_SET_BIND_POINTS; bind_point_index++)
+  {
+    if (bind_descriptor_sets[bind_point_index] == VK_NULL_HANDLE)
+      break;
+  }
+  if (bind_point_index > 0)
+  {
+    // Bind the contiguous sets, any others after any gaps will be handled below
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_pipeline_info.pipeline_layout, DESCRIPTOR_SET_UNIFORM_BUFFERS, 1,
+                            m_pipeline_info.pipeline_layout, 0, bind_point_index,
                             &bind_descriptor_sets[0], NUM_UBO_DESCRIPTOR_SET_BINDINGS,
                             m_ubo_offsets.data());
   }
-  else if (bind_descriptor_sets[0] == VK_NULL_HANDLE && bind_descriptor_sets[1] != VK_NULL_HANDLE)
+
+  // Handle any remaining sets
+  for (u32 i = bind_point_index; i < NUM_DESCRIPTOR_SET_BIND_POINTS; i++)
   {
-    // Samplers only
+    if (bind_descriptor_sets[i] == VK_NULL_HANDLE)
+      continue;
+
+    // No need to worry about dynamic offsets here, since #0 will always be bound above.
     vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_pipeline_info.pipeline_layout, DESCRIPTOR_SET_PIXEL_SHADER_SAMPLERS,
-                            1, &bind_descriptor_sets[1], 0, nullptr);
-  }
-  else if (bind_descriptor_sets[0] != VK_NULL_HANDLE && bind_descriptor_sets[1] != VK_NULL_HANDLE)
-  {
-    // Both
-    vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_pipeline_info.pipeline_layout, DESCRIPTOR_SET_UNIFORM_BUFFERS, 2,
-                            bind_descriptor_sets.data(), NUM_UBO_DESCRIPTOR_SET_BINDINGS,
-                            m_ubo_offsets.data());
+                            m_pipeline_info.pipeline_layout, i, 1, &bind_descriptor_sets[i], 0,
+                            nullptr);
   }
 }
 
 bool UtilityShaderDraw::BindPipeline()
 {
-  VkPipeline pipeline = g_object_cache->GetPipeline(m_pipeline_info);
+  VkPipeline pipeline = g_shader_cache->GetPipeline(m_pipeline_info);
   if (pipeline == VK_NULL_HANDLE)
   {
     PanicAlert("Failed to get pipeline for backend shader draw");
@@ -636,6 +718,159 @@ bool UtilityShaderDraw::BindPipeline()
   }
 
   vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+  return true;
+}
+
+ComputeShaderDispatcher::ComputeShaderDispatcher(VkCommandBuffer command_buffer,
+                                                 VkPipelineLayout pipeline_layout,
+                                                 VkShaderModule compute_shader)
+    : m_command_buffer(command_buffer)
+{
+  // Populate minimal pipeline state
+  m_pipeline_info.pipeline_layout = pipeline_layout;
+  m_pipeline_info.cs = compute_shader;
+}
+
+u8* ComputeShaderDispatcher::AllocateUniformBuffer(size_t size)
+{
+  if (!g_object_cache->GetUtilityShaderUniformBuffer()->ReserveMemory(
+          size, g_vulkan_context->GetUniformBufferAlignment(), true, true, true))
+    PanicAlert("Failed to allocate util uniforms");
+
+  return g_object_cache->GetUtilityShaderUniformBuffer()->GetCurrentHostPointer();
+}
+
+void ComputeShaderDispatcher::CommitUniformBuffer(size_t size)
+{
+  m_uniform_buffer.buffer = g_object_cache->GetUtilityShaderUniformBuffer()->GetBuffer();
+  m_uniform_buffer.offset = 0;
+  m_uniform_buffer.range = size;
+  m_uniform_buffer_offset =
+      static_cast<u32>(g_object_cache->GetUtilityShaderUniformBuffer()->GetCurrentOffset());
+
+  g_object_cache->GetUtilityShaderUniformBuffer()->CommitMemory(size);
+}
+
+void ComputeShaderDispatcher::SetPushConstants(const void* data, size_t data_size)
+{
+  _assert_(static_cast<u32>(data_size) < PUSH_CONSTANT_BUFFER_SIZE);
+
+  vkCmdPushConstants(m_command_buffer, m_pipeline_info.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                     0, static_cast<u32>(data_size), data);
+}
+
+void ComputeShaderDispatcher::SetSampler(size_t index, VkImageView view, VkSampler sampler)
+{
+  m_samplers[index].sampler = sampler;
+  m_samplers[index].imageView = view;
+  m_samplers[index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+}
+
+void ComputeShaderDispatcher::SetStorageImage(VkImageView view, VkImageLayout image_layout)
+{
+  m_storage_image.sampler = VK_NULL_HANDLE;
+  m_storage_image.imageView = view;
+  m_storage_image.imageLayout = image_layout;
+}
+
+void ComputeShaderDispatcher::SetTexelBuffer(size_t index, VkBufferView view)
+{
+  m_texel_buffers[index] = view;
+}
+
+void ComputeShaderDispatcher::Dispatch(u32 groups_x, u32 groups_y, u32 groups_z)
+{
+  BindDescriptors();
+  if (!BindPipeline())
+    return;
+
+  vkCmdDispatch(m_command_buffer, groups_x, groups_y, groups_z);
+}
+
+void ComputeShaderDispatcher::BindDescriptors()
+{
+  VkDescriptorSet set = g_command_buffer_mgr->AllocateDescriptorSet(
+      g_object_cache->GetDescriptorSetLayout(DESCRIPTOR_SET_LAYOUT_COMPUTE));
+  if (set == VK_NULL_HANDLE)
+  {
+    PanicAlert("Failed to allocate descriptor set for compute dispatch");
+    return;
+  }
+
+  // Reserve enough descriptors to write every binding.
+  std::array<VkWriteDescriptorSet, 7> set_writes = {};
+  u32 num_set_writes = 0;
+
+  if (m_uniform_buffer.buffer != VK_NULL_HANDLE)
+  {
+    set_writes[num_set_writes++] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                    nullptr,
+                                    set,
+                                    0,
+                                    0,
+                                    1,
+                                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+                                    nullptr,
+                                    &m_uniform_buffer,
+                                    nullptr};
+  }
+
+  // Samplers
+  for (size_t i = 0; i < m_samplers.size(); i++)
+  {
+    const VkDescriptorImageInfo& info = m_samplers[i];
+    if (info.imageView != VK_NULL_HANDLE && info.sampler != VK_NULL_HANDLE)
+    {
+      set_writes[num_set_writes++] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                      nullptr,
+                                      set,
+                                      static_cast<u32>(1 + i),
+                                      0,
+                                      1,
+                                      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                      &info,
+                                      nullptr,
+                                      nullptr};
+    }
+  }
+
+  for (size_t i = 0; i < m_texel_buffers.size(); i++)
+  {
+    if (m_texel_buffers[i] != VK_NULL_HANDLE)
+    {
+      set_writes[num_set_writes++] = {
+          VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,  nullptr, set,     5 + static_cast<u32>(i), 0, 1,
+          VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, nullptr, nullptr, &m_texel_buffers[i]};
+    }
+  }
+
+  if (m_storage_image.imageView != VK_NULL_HANDLE)
+  {
+    set_writes[num_set_writes++] = {
+        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr,          set,     7,      0, 1,
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,       &m_storage_image, nullptr, nullptr};
+  }
+
+  if (num_set_writes > 0)
+  {
+    vkUpdateDescriptorSets(g_vulkan_context->GetDevice(), num_set_writes, set_writes.data(), 0,
+                           nullptr);
+  }
+
+  vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          m_pipeline_info.pipeline_layout, 0, 1, &set, 1, &m_uniform_buffer_offset);
+}
+
+bool ComputeShaderDispatcher::BindPipeline()
+{
+  VkPipeline pipeline = g_shader_cache->GetComputePipeline(m_pipeline_info);
+  if (pipeline == VK_NULL_HANDLE)
+  {
+    PanicAlert("Failed to get pipeline for backend compute dispatch");
+    return false;
+  }
+
+  vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
   return true;
 }
 

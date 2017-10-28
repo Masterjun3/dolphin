@@ -6,8 +6,8 @@
 
 #define DINPUT_SOURCE_NAME "DInput"
 
-#include <list>
 #include <windows.h>
+#include <list>
 
 #include "InputCommon/ControllerInterface/DInput/DInput8.h"
 
@@ -20,6 +20,6 @@ BOOL CALLBACK DIEnumDeviceObjectsCallback(LPCDIDEVICEOBJECTINSTANCE lpddoi, LPVO
 BOOL CALLBACK DIEnumDevicesCallback(LPCDIDEVICEINSTANCE lpddi, LPVOID pvRef);
 std::string GetDeviceName(const LPDIRECTINPUTDEVICE8 device);
 
-void Init(HWND hwnd);
+void PopulateDevices(HWND hwnd);
 }
 }

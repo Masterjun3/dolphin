@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "Common/BlockingLoop.h"
+#include "Common/Flag.h"
 #include "Common/Semaphore.h"
 
 #include "VideoCommon/VideoCommon.h"
@@ -33,7 +34,6 @@ public:
 
   bool Initialize();
 
-  VkCommandPool GetCommandPool() const { return m_command_pool; }
   // These command buffers are allocated per-frame. They are valid until the command buffer
   // is submitted, after that you should call these functions again.
   VkCommandBuffer GetCurrentInitCommandBuffer()
@@ -79,6 +79,8 @@ public:
 
   void ExecuteCommandBuffer(bool submit_off_thread, bool wait_for_completion);
 
+  // Was the last present submitted to the queue a failure? If so, we must recreate our swapchain.
+  bool CheckLastPresentFail() { return m_present_failed_flag.TestAndClear(); }
   // Schedule a vulkan resource for destruction later on. This will occur when the command buffer
   // is next re-used, and the GPU has finished working with the specified resource.
   void DeferBufferDestruction(VkBuffer object);
@@ -100,9 +102,6 @@ public:
   void RemoveFencePointCallback(const void* key);
 
 private:
-  bool CreateCommandPool();
-  void DestroyCommandPool();
-
   bool CreateCommandBuffers();
   void DestroyCommandBuffers();
 
@@ -113,11 +112,10 @@ private:
 
   void OnCommandBufferExecuted(size_t index);
 
-  VkCommandPool m_command_pool = VK_NULL_HANDLE;
-
   struct FrameResources
   {
     // [0] - Init (upload) command buffer, [1] - draw command buffer
+    VkCommandPool command_pool;
     std::array<VkCommandBuffer, 2> command_buffers;
     VkDescriptorPool descriptor_pool;
     VkFence fence;
@@ -149,6 +147,7 @@ private:
   };
   std::deque<PendingCommandBufferSubmit> m_pending_submits;
   std::mutex m_pending_submit_lock;
+  Common::Flag m_present_failed_flag;
   bool m_use_threaded_submission = false;
 };
 

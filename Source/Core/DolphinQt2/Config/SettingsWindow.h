@@ -5,33 +5,19 @@
 #pragma once
 
 #include <QDialog>
-#include <QDialogButtonBox>
-#include <QGroupBox>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QListView>
-#include <QListWidget>
-#include <QListWidgetItem>
-#include <QStackedWidget>
-#include <QString>
-#include <QVBoxLayout>
-#include <QWidget>
+
+class ListTabWidget;
 
 class SettingsWindow final : public QDialog
 {
   Q_OBJECT
 public:
   explicit SettingsWindow(QWidget* parent = nullptr);
-
-public slots:
-  void changePage(QListWidgetItem* current, QListWidgetItem* previous);
+  void SelectGeneralPane();
+  void SelectAudioPane();
 
 private:
-  void MakeCategoryList();
-  void MakeUnfinishedWarning();
-  void AddCategoryToList(const QString& title, const QString& icon);
-  void SetupSettingsWidget();
-  QStackedWidget* m_settings_outer;
-  QListWidget* m_categories;
-  QGroupBox* m_warning_group;
+  ListTabWidget* m_tabs;
+  int m_audio_pane_index = -1;
+  int m_general_pane_index = -1;
 };

@@ -13,6 +13,7 @@
 class SWRenderer : public Renderer
 {
 public:
+  SWRenderer();
   ~SWRenderer() override;
 
   static void Init();
@@ -25,12 +26,10 @@ public:
 
   void RenderText(const std::string& pstr, int left, int top, u32 color) override;
   u32 AccessEFB(EFBAccessType type, u32 x, u32 y, u32 poke_data) override;
-  void PokeEFB(EFBAccessType type, const EfbPokeData* points, size_t num_points) override{};
-
+  void PokeEFB(EFBAccessType type, const EfbPokeData* points, size_t num_points) override {}
   u16 BBoxRead(int index) override;
   void BBoxWrite(int index, u16 value) override;
 
-  u32 GetMaxTextureSize() override { return 16 * 1024; };
   TargetRectangle ConvertEFBRectangle(const EFBRectangle& rc) override;
 
   void SwapImpl(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, const EFBRectangle& rc,

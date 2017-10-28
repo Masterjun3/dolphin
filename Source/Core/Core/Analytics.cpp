@@ -1,3 +1,5 @@
+#include "Core/Analytics.h"
+
 #include <cinttypes>
 #include <mbedtls/sha1.h>
 #include <memory>
@@ -13,15 +15,13 @@
 
 #include "Common/Analytics.h"
 #include "Common/CPUDetect.h"
-#include "Common/Common.h"
 #include "Common/CommonTypes.h"
 #include "Common/StringUtil.h"
-#include "Core/Analytics.h"
+#include "Common/Version.h"
 #include "Core/ConfigManager.h"
 #include "Core/HW/GCPad.h"
 #include "Core/Movie.h"
 #include "Core/NetPlayProto.h"
-#include "InputCommon/ControllerEmu.h"
 #include "InputCommon/GCAdapter.h"
 #include "InputCommon/InputConfig.h"
 #include "VideoCommon/VideoBackendBase.h"
@@ -121,10 +121,10 @@ void DolphinAnalytics::MakeBaseBuilder()
   Common::AnalyticsReportBuilder builder;
 
   // Version information.
-  builder.AddData("version-desc", scm_desc_str);
-  builder.AddData("version-hash", scm_rev_git_str);
-  builder.AddData("version-branch", scm_branch_str);
-  builder.AddData("version-dist", scm_distributor_str);
+  builder.AddData("version-desc", Common::scm_desc_str);
+  builder.AddData("version-hash", Common::scm_rev_git_str);
+  builder.AddData("version-branch", Common::scm_branch_str);
+  builder.AddData("version-dist", Common::scm_distributor_str);
 
   // CPU information.
   builder.AddData("cpu-summary", cpu_info.Summarize());
@@ -178,15 +178,26 @@ void DolphinAnalytics::MakeBaseBuilder()
   m_base_builder = builder;
 }
 
+static const char* GetUbershaderMode(const VideoConfig& video_config)
+{
+  if (video_config.bDisableSpecializedShaders)
+    return "exclusive";
+
+  if (video_config.bBackgroundShaderCompiling)
+    return "hybrid";
+
+  return "disabled";
+}
+
 void DolphinAnalytics::MakePerGameBuilder()
 {
   Common::AnalyticsReportBuilder builder(m_base_builder);
 
   // Gameid.
-  builder.AddData("gameid", SConfig::GetInstance().GetUniqueID());
+  builder.AddData("gameid", SConfig::GetInstance().GetGameID());
 
   // Unique id bound to the gameid.
-  builder.AddData("id", MakeUniqueId(SConfig::GetInstance().GetUniqueID()));
+  builder.AddData("id", MakeUniqueId(SConfig::GetInstance().GetGameID()));
 
   // Configuration.
   builder.AddData("cfg-dsp-hle", SConfig::GetInstance().bDSPHLE);
@@ -211,8 +222,6 @@ void DolphinAnalytics::MakePerGameBuilder()
   builder.AddData("cfg-gfx-realxfb", g_Config.RealXFBEnabled());
   builder.AddData("cfg-gfx-virtualxfb", g_Config.VirtualXFBEnabled());
   builder.AddData("cfg-gfx-vsync", g_Config.bVSync);
-  builder.AddData("cfg-gfx-fullscreen", g_Config.bFullscreen);
-  builder.AddData("cfg-gfx-exclusive-mode", g_Config.bExclusiveMode);
   builder.AddData("cfg-gfx-aspect-ratio", g_Config.iAspectRatio);
   builder.AddData("cfg-gfx-efb-access", g_Config.bEFBAccessEnable);
   builder.AddData("cfg-gfx-efb-scale", g_Config.iEFBScale);
@@ -221,6 +230,10 @@ void DolphinAnalytics::MakePerGameBuilder()
   builder.AddData("cfg-gfx-efb-copy-scaled", g_Config.bCopyEFBScaled);
   builder.AddData("cfg-gfx-tc-samples", g_Config.iSafeTextureCache_ColorSamples);
   builder.AddData("cfg-gfx-stereo-mode", g_Config.iStereoMode);
+  builder.AddData("cfg-gfx-per-pixel-lighting", g_Config.bEnablePixelLighting);
+  builder.AddData("cfg-gfx-ubershader-mode", GetUbershaderMode(g_Config));
+  builder.AddData("cfg-gfx-fast-depth", g_Config.bFastDepthCalc);
+  builder.AddData("cfg-gfx-vertex-rounding", g_Config.UseVertexRounding());
 
   // GPU features.
   if (g_Config.iAdapter < static_cast<int>(g_Config.backend_info.Adapters.size()))
@@ -241,6 +254,8 @@ void DolphinAnalytics::MakePerGameBuilder()
   builder.AddData("gpu-has-early-z", g_Config.backend_info.bSupportsEarlyZ);
   builder.AddData("gpu-has-binding-layout", g_Config.backend_info.bSupportsBindingLayout);
   builder.AddData("gpu-has-bbox", g_Config.backend_info.bSupportsBBox);
+  builder.AddData("gpu-has-fragment-stores-and-atomics",
+                  g_Config.backend_info.bSupportsFragmentStoresAndAtomics);
   builder.AddData("gpu-has-gs-instancing", g_Config.backend_info.bSupportsGSInstancing);
   builder.AddData("gpu-has-post-processing", g_Config.backend_info.bSupportsPostProcessing);
   builder.AddData("gpu-has-palette-conversion", g_Config.backend_info.bSupportsPaletteConversion);

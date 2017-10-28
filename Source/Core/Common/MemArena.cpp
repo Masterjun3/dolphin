@@ -7,6 +7,7 @@
 #include <set>
 #include <string>
 
+#include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
 #include "Common/MemArena.h"
@@ -54,31 +55,25 @@ static int AshmemCreateFileMapping(const char* name, size_t size)
 void MemArena::GrabSHMSegment(size_t size)
 {
 #ifdef _WIN32
-  hMemoryMapping =
-      CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, (DWORD)(size), nullptr);
+  const std::string name = "dolphin-emu." + std::to_string(GetCurrentProcessId());
+  hMemoryMapping = CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0,
+                                     static_cast<DWORD>(size), UTF8ToTStr(name).c_str());
 #elif defined(ANDROID)
-  fd = AshmemCreateFileMapping("Dolphin-emu", size);
+  fd = AshmemCreateFileMapping(("dolphin-emu." + std::to_string(getpid())).c_str(), size);
   if (fd < 0)
   {
     NOTICE_LOG(MEMMAP, "Ashmem allocation failed");
     return;
   }
 #else
-  for (int i = 0; i < 10000; i++)
+  const std::string file_name = "/dolphin-emu." + std::to_string(getpid());
+  fd = shm_open(file_name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
+  if (fd == -1)
   {
-    std::string file_name = StringFromFormat("/dolphinmem.%d", i);
-    fd = shm_open(file_name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
-    if (fd != -1)
-    {
-      shm_unlink(file_name.c_str());
-      break;
-    }
-    else if (errno != EEXIST)
-    {
-      ERROR_LOG(MEMMAP, "shm_open failed: %s", strerror(errno));
-      return;
-    }
+    ERROR_LOG(MEMMAP, "shm_open failed: %s", strerror(errno));
+    return;
   }
+  shm_unlink(file_name.c_str());
   if (ftruncate(fd, size) < 0)
     ERROR_LOG(MEMMAP, "Failed to allocate low memory space");
 #endif
@@ -125,19 +120,22 @@ void MemArena::ReleaseView(void* view, size_t size)
 
 u8* MemArena::FindMemoryBase()
 {
-#if _ARCH_64
+#if _ARCH_32
+  const size_t memory_size = 0x31000000;
+#else
+  const size_t memory_size = 0x400000000;
+#endif
+
 #ifdef _WIN32
-  // 64 bit
-  u8* base = (u8*)VirtualAlloc(0, 0x400000000, MEM_RESERVE, PAGE_READWRITE);
+  u8* base = static_cast<u8*>(VirtualAlloc(nullptr, memory_size, MEM_RESERVE, PAGE_READWRITE));
+  if (!base)
+  {
+    PanicAlert("Failed to map enough memory space: %s", GetLastErrorString().c_str());
+    return nullptr;
+  }
   VirtualFree(base, 0, MEM_RELEASE);
   return base;
 #else
-  // Very precarious - mmap cannot return an error when trying to map already used pages.
-  // This makes the Windows approach above unusable on Linux, so we will simply pray...
-  return reinterpret_cast<u8*>(0x2300000000ULL);
-#endif
-
-#else  // 32 bit
 #ifdef ANDROID
   // Android 4.3 changed how mmap works.
   // if we map it private and then munmap it, we can't use the base returned.
@@ -146,14 +144,13 @@ u8* MemArena::FindMemoryBase()
 #else
   const int flags = MAP_ANON | MAP_PRIVATE;
 #endif
-  const u32 MemSize = 0x31000000;
-  void* base = mmap(0, MemSize, PROT_NONE, flags, -1, 0);
+  void* base = mmap(nullptr, memory_size, PROT_NONE, flags, -1, 0);
   if (base == MAP_FAILED)
   {
-    PanicAlert("Failed to map 1 GB of memory space: %s", strerror(errno));
-    return 0;
+    PanicAlert("Failed to map enough memory space: %s", LastStrerrorString().c_str());
+    return nullptr;
   }
-  munmap(base, MemSize);
+  munmap(base, memory_size);
   return static_cast<u8*>(base);
 #endif
 }

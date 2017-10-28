@@ -2,13 +2,13 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "VideoBackends/Vulkan/VertexFormat.h"
+
 #include "Common/Assert.h"
 
 #include "VideoBackends/Vulkan/CommandBufferManager.h"
 #include "VideoBackends/Vulkan/ObjectCache.h"
-#include "VideoBackends/Vulkan/VertexFormat.h"
 
-#include "VideoCommon/CPMemory.h"
 #include "VideoCommon/VertexLoaderManager.h"
 #include "VideoCommon/VertexShaderGen.h"
 
@@ -51,6 +51,11 @@ VertexFormat::VertexFormat(const PortableVertexDeclaration& in_vtx_decl)
   vtx_decl = in_vtx_decl;
   MapAttributes();
   SetupInputState();
+}
+
+const VkPipelineVertexInputStateCreateInfo& VertexFormat::GetVertexInputStateInfo() const
+{
+  return m_input_state_info;
 }
 
 void VertexFormat::MapAttributes()
@@ -123,9 +128,4 @@ void VertexFormat::AddAttribute(uint32_t location, uint32_t binding, VkFormat fo
   m_attribute_descriptions[m_num_attributes].offset = offset;
   m_num_attributes++;
 }
-
-void VertexFormat::SetupVertexPointers()
-{
-}
-
 }  // namespace Vulkan

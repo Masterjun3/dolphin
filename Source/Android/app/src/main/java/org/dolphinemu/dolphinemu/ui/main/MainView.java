@@ -1,7 +1,8 @@
 package org.dolphinemu.dolphinemu.ui.main;
 
-
 import android.database.Cursor;
+
+import org.dolphinemu.dolphinemu.ui.platform.Platform;
 
 /**
  * Abstraction for the screen that shows on application launch.
@@ -40,8 +41,8 @@ public interface MainView
 	 * To be called when an asynchronous database read completes. Passes the
 	 * result, in this case a {@link Cursor} to the view.
 	 *
-	 * @param platformIndex Which platform contains these games.
+	 * @param platform Which platform to show games for.
 	 * @param games A Cursor containing the games read from the database.
 	 */
-	void showGames(int platformIndex, Cursor games);
+	void showGames(Platform platform, Cursor games);
 }

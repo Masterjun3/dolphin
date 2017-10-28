@@ -6,19 +6,14 @@
 
 #include <cstdarg>
 #include <cstring>
-#include <fstream>
-#include <iomanip>
 #include <map>
 #include <string>
 #include <vector>
 
 #include "Common/CommonTypes.h"
-#include "Common/FileUtil.h"
-#include "Common/Logging/Log.h"
 #include "Common/StringUtil.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
-#include "VideoCommon/XFMemory.h"
 
 /**
  * Common interface for classes that need to go through the shader generation path
@@ -104,7 +99,8 @@ public:
   const u8* GetUidDataRaw() const { return &values[0]; }
   size_t GetUidDataSize() const { return sizeof(values); }
 private:
-  union {
+  union
+  {
     uid_data data;
     u8 values[sizeof(uid_data)];
   };
@@ -154,6 +150,43 @@ public:
 private:
   std::vector<bool> constant_usage;  // TODO: Is vector<bool> appropriate here?
 };
+
+// Host config contains the settings which can influence generated shaders.
+union ShaderHostConfig
+{
+  u32 bits;
+
+  struct
+  {
+    u32 msaa : 1;
+    u32 ssaa : 1;
+    u32 stereo : 1;
+    u32 wireframe : 1;
+    u32 per_pixel_lighting : 1;
+    u32 vertex_rounding : 1;
+    u32 fast_depth_calc : 1;
+    u32 bounding_box : 1;
+    u32 backend_dual_source_blend : 1;
+    u32 backend_geometry_shaders : 1;
+    u32 backend_early_z : 1;
+    u32 backend_bbox : 1;
+    u32 backend_gs_instancing : 1;
+    u32 backend_clip_control : 1;
+    u32 backend_ssaa : 1;
+    u32 backend_atomics : 1;
+    u32 backend_depth_clamp : 1;
+    u32 backend_reversed_depth_range : 1;
+    u32 backend_bitfield : 1;
+    u32 backend_dynamic_sampler_indexing : 1;
+    u32 pad : 12;
+  };
+
+  static ShaderHostConfig GetCurrent();
+};
+
+// Gets the filename of the specified type of cache object (e.g. vertex shader, pipeline).
+std::string GetDiskShaderCacheFileName(APIType api_type, const char* type, bool include_gameid,
+                                       bool include_host_config);
 
 template <class T>
 inline void DefineOutputMember(T& object, APIType api_type, const char* qualifier, const char* type,
@@ -279,12 +312,16 @@ inline const char* GetInterpolationQualifier(bool msaa, bool ssaa,
 #define I_NORMALMATRICES "cnmtx"
 #define I_POSTTRANSFORMMATRICES "cpostmtx"
 #define I_PIXELCENTERCORRECTION "cpixelcenter"
+#define I_VIEWPORT_SIZE "cviewport"
 
 #define I_STEREOPARAMS "cstereo"
 #define I_LINEPTPARAMS "clinept"
 #define I_TEXOFFSET "ctexoffset"
 
-static const char s_shader_uniforms[] = "\tfloat4 " I_POSNORMALMATRIX "[6];\n"
+static const char s_shader_uniforms[] = "\tuint    components;\n"
+                                        "\tuint    xfmem_dualTexInfo;\n"
+                                        "\tuint    xfmem_numColorChans;\n"
+                                        "\tfloat4 " I_POSNORMALMATRIX "[6];\n"
                                         "\tfloat4 " I_PROJECTION "[4];\n"
                                         "\tint4 " I_MATERIALS "[4];\n"
                                         "\tLight " I_LIGHTS "[8];\n"
@@ -292,4 +329,10 @@ static const char s_shader_uniforms[] = "\tfloat4 " I_POSNORMALMATRIX "[6];\n"
                                         "\tfloat4 " I_TRANSFORMMATRICES "[64];\n"
                                         "\tfloat4 " I_NORMALMATRICES "[32];\n"
                                         "\tfloat4 " I_POSTTRANSFORMMATRICES "[64];\n"
-                                        "\tfloat4 " I_PIXELCENTERCORRECTION ";\n";
+                                        "\tfloat4 " I_PIXELCENTERCORRECTION ";\n"
+                                        "\tfloat2 " I_VIEWPORT_SIZE ";\n"
+                                        "\tuint4   xfmem_pack1[8];\n"
+                                        "\t#define xfmem_texMtxInfo(i) (xfmem_pack1[(i)].x)\n"
+                                        "\t#define xfmem_postMtxInfo(i) (xfmem_pack1[(i)].y)\n"
+                                        "\t#define xfmem_color(i) (xfmem_pack1[(i)].z)\n"
+                                        "\t#define xfmem_alpha(i) (xfmem_pack1[(i)].w)\n";

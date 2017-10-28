@@ -9,18 +9,12 @@
 
 #include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
+#include "VideoCommon/RenderState.h"
 
 class DataReader;
 class NativeVertexFormat;
 class PointerWrap;
 struct PortableVertexDeclaration;
-
-enum PrimitiveType
-{
-  PRIMITIVE_POINTS,
-  PRIMITIVE_LINES,
-  PRIMITIVE_TRIANGLES,
-};
 
 struct Slope
 {
@@ -51,20 +45,21 @@ public:
   // needs to be virtual for DX11's dtor
   virtual ~VertexManagerBase();
 
+  PrimitiveType GetCurrentPrimitiveType() const { return m_current_primitive_type; }
   DataReader PrepareForAdditionalData(int primitive, u32 count, u32 stride, bool cullall);
   void FlushData(u32 count, u32 stride);
 
   void Flush();
 
-  virtual NativeVertexFormat*
+  virtual std::unique_ptr<NativeVertexFormat>
   CreateNativeVertexFormat(const PortableVertexDeclaration& vtx_decl) = 0;
 
   void DoState(PointerWrap& p);
 
+  std::pair<size_t, size_t> ResetFlushAspectRatioCount();
+
 protected:
   virtual void vDoState(PointerWrap& p) {}
-  PrimitiveType m_current_primitive_type = PrimitiveType::PRIMITIVE_POINTS;
-
   virtual void ResetBuffer(u32 stride) = 0;
 
   u8* m_cur_buffer_pointer = nullptr;
@@ -78,11 +73,14 @@ protected:
   void CalculateZSlope(NativeVertexFormat* format);
 
   bool m_cull_all = false;
+  PrimitiveType m_current_primitive_type = PrimitiveType::Points;
 
 private:
   bool m_is_flushed = true;
+  size_t m_flush_count_4_3 = 0;
+  size_t m_flush_count_anamorphic = 0;
 
-  virtual void vFlush(bool useDstAlpha) = 0;
+  virtual void vFlush() = 0;
 
   virtual void CreateDeviceObjects() {}
   virtual void DestroyDeviceObjects() {}

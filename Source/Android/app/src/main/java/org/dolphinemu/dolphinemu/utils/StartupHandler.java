@@ -1,10 +1,10 @@
 package org.dolphinemu.dolphinemu.utils;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.support.v4.app.FragmentActivity;
 import android.text.TextUtils;
 
 import org.dolphinemu.dolphinemu.NativeLibrary;
@@ -13,19 +13,13 @@ import org.dolphinemu.dolphinemu.services.AssetCopyService;
 
 public final class StartupHandler
 {
-	public static boolean HandleInit(Activity parent)
+	public static boolean HandleInit(FragmentActivity parent)
 	{
 		NativeLibrary.SetUserDirectory(""); // Auto-Detect
 
-		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(parent);
-		boolean assetsCopied = preferences.getBoolean("assetsCopied", false);
-
 		// Only perform these extensive copy operations once.
-		if (!assetsCopied)
-		{
-			// Copy assets into appropriate locations.
-			Intent copyAssets = new Intent(parent, AssetCopyService.class);
-			parent.startService(copyAssets);
+		if (PermissionsHandler.checkWritePermission(parent)) {
+			copyAssetsIfNeeded(parent);
 		}
 
 		Intent intent = parent.getIntent();
@@ -50,5 +44,17 @@ public final class StartupHandler
 			}
 		}
 		return false;
+	}
+
+	public static void copyAssetsIfNeeded(FragmentActivity parent) {
+		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(parent);
+		boolean assetsCopied = preferences.getBoolean("assetsCopied", false);
+
+		if (!assetsCopied)
+		{
+			// Copy assets into appropriate locations.
+			Intent copyAssets = new Intent(parent, AssetCopyService.class);
+			parent.startService(copyAssets);
+		}
 	}
 }

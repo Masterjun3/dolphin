@@ -17,17 +17,11 @@ public:
   VertexFormat(const PortableVertexDeclaration& in_vtx_decl);
 
   // Passed to pipeline state creation
-  const VkPipelineVertexInputStateCreateInfo& GetVertexInputStateInfo() const
-  {
-    return m_input_state_info;
-  }
+  const VkPipelineVertexInputStateCreateInfo& GetVertexInputStateInfo() const;
 
   // Converting PortableVertexDeclaration -> Vulkan types
   void MapAttributes();
   void SetupInputState();
-
-  // Not used in the Vulkan backend.
-  void SetupVertexPointers() override;
 
 private:
   void AddAttribute(uint32_t location, uint32_t binding, VkFormat format, uint32_t offset);

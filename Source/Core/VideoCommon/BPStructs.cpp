@@ -2,6 +2,8 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "VideoCommon/BPStructs.h"
+
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -15,7 +17,6 @@
 
 #include "VideoCommon/BPFunctions.h"
 #include "VideoCommon/BPMemory.h"
-#include "VideoCommon/BPStructs.h"
 #include "VideoCommon/BoundingBox.h"
 #include "VideoCommon/Fifo.h"
 #include "VideoCommon/GeometryShaderManager.h"
@@ -26,6 +27,7 @@
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/TextureDecoder.h"
 #include "VideoCommon/VertexShaderManager.h"
+#include "VideoCommon/VideoBackendBase.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
 
@@ -91,6 +93,9 @@ static void BPWritten(const BPCmd& bp)
              (u32)bpmem.genMode.cullmode, (u32)bpmem.genMode.numindstages,
              (u32)bpmem.genMode.zfreeze);
 
+    if (bp.changes)
+      PixelShaderManager::SetGenModeChanged();
+
     // Only call SetGenerationMode when cull mode changes.
     if (bp.changes & 0xC000)
       SetGenerationMode();
@@ -129,40 +134,35 @@ static void BPWritten(const BPCmd& bp)
     GeometryShaderManager::SetLinePtWidthChanged();
     return;
   case BPMEM_ZMODE:  // Depth Control
-    PRIM_LOG("zmode: test=%d, func=%d, upd=%d", (int)bpmem.zmode.testenable, (int)bpmem.zmode.func,
-             (int)bpmem.zmode.updateenable);
+    PRIM_LOG("zmode: test=%u, func=%u, upd=%u", bpmem.zmode.testenable.Value(),
+             bpmem.zmode.func.Value(), bpmem.zmode.updateenable.Value());
     SetDepthMode();
+    PixelShaderManager::SetZModeControl();
     return;
   case BPMEM_BLENDMODE:  // Blending Control
     if (bp.changes & 0xFFFF)
     {
-      PRIM_LOG("blendmode: en=%d, open=%d, colupd=%d, alphaupd=%d, dst=%d, src=%d, sub=%d, mode=%d",
-               (int)bpmem.blendmode.blendenable, (int)bpmem.blendmode.logicopenable,
-               (int)bpmem.blendmode.colorupdate, (int)bpmem.blendmode.alphaupdate,
-               (int)bpmem.blendmode.dstfactor, (int)bpmem.blendmode.srcfactor,
-               (int)bpmem.blendmode.subtract, (int)bpmem.blendmode.logicmode);
+      PRIM_LOG("blendmode: en=%u, open=%u, colupd=%u, alphaupd=%u, dst=%u, src=%u, sub=%u, mode=%u",
+               bpmem.blendmode.blendenable.Value(), bpmem.blendmode.logicopenable.Value(),
+               bpmem.blendmode.colorupdate.Value(), bpmem.blendmode.alphaupdate.Value(),
+               bpmem.blendmode.dstfactor.Value(), bpmem.blendmode.srcfactor.Value(),
+               bpmem.blendmode.subtract.Value(), bpmem.blendmode.logicmode.Value());
 
-      // Set LogicOp Blending Mode
-      if (bp.changes & 0xF002)  // logicopenable | logicmode
-        SetLogicOpMode();
+      SetBlendMode();
 
-      // Set Dithering Mode
-      if (bp.changes & 4)  // dither
-        SetDitherMode();
-
-      // Set Blending Mode
-      if (bp.changes & 0xFF1)  // blendenable | alphaupdate | dstfactor | srcfactor | subtract
-        SetBlendMode();
-
-      // Set Color Mask
-      if (bp.changes & 0x18)  // colorupdate | alphaupdate
-        SetColorMask();
+      // Dither
+      if (bp.changes & 0x04)
+        PixelShaderManager::SetBlendModeChanged();
     }
     return;
   case BPMEM_CONSTANTALPHA:  // Set Destination Alpha
-    PRIM_LOG("constalpha: alp=%d, en=%d", bpmem.dstalpha.alpha, bpmem.dstalpha.enable);
-    if (bp.changes & 0xFF)
-      PixelShaderManager::SetDestAlpha();
+    PRIM_LOG("constalpha: alp=%d, en=%d", bpmem.dstalpha.alpha.Value(),
+             bpmem.dstalpha.enable.Value());
+    if (bp.changes)
+    {
+      PixelShaderManager::SetAlpha();
+      PixelShaderManager::SetDestAlphaChanged();
+    }
     if (bp.changes & 0x100)
       SetBlendMode();
     return;
@@ -227,9 +227,10 @@ static void BPWritten(const BPCmd& bp)
     {
       // bpmem.zcontrol.pixel_format to PEControl::Z24 is when the game wants to copy from ZBuffer
       // (Zbuffer uses 24-bit Format)
-      TextureCacheBase::CopyRenderTargetToTexture(destAddr, PE_copy.tp_realFormat(), destStride,
-                                                  bpmem.zcontrol.pixel_format, srcRect,
-                                                  !!PE_copy.intensity_fmt, !!PE_copy.half_scale);
+      bool is_depth_copy = bpmem.zcontrol.pixel_format == PEControl::Z24;
+      g_texture_cache->CopyRenderTargetToTexture(destAddr, PE_copy.tp_realFormat(), destStride,
+                                                 is_depth_copy, srcRect, !!PE_copy.intensity_fmt,
+                                                 !!PE_copy.half_scale);
     }
     else
     {
@@ -238,6 +239,7 @@ static void BPWritten(const BPCmd& bp)
       // the number of lines copied is determined by the y scale * source efb height
 
       BoundingBox::active = false;
+      PixelShaderManager::SetBoundingBoxActive(false);
 
       float yScale;
       if (PE_copy.scale_invert)
@@ -258,7 +260,7 @@ static void BPWritten(const BPCmd& bp)
                        "fbStride: %u | fbHeight: %u",
                 destAddr, srcRect.left, srcRect.top, srcRect.right, srcRect.bottom,
                 bpmem.copyTexSrcWH.x + 1, destStride, height);
-      Renderer::RenderToXFB(destAddr, srcRect, destStride, height, s_gammaLUT[PE_copy.gamma]);
+      g_renderer->RenderToXFB(destAddr, srcRect, destStride, height, s_gammaLUT[PE_copy.gamma]);
     }
 
     // Clear the rectangular region after copying it.
@@ -285,6 +287,8 @@ static void BPWritten(const BPCmd& bp)
 
     if (g_bRecordFifoData)
       FifoRecorder::GetInstance().UseMemory(addr, tlutXferCount, MemoryUpdate::TMEM);
+
+    TextureCacheBase::InvalidateAllBindPoints();
 
     return;
   }
@@ -315,10 +319,13 @@ static void BPWritten(const BPCmd& bp)
     if (bp.changes & 0xFFFF)
       PixelShaderManager::SetAlpha();
     if (bp.changes)
-      g_renderer->SetColorMask();
+    {
+      PixelShaderManager::SetAlphaTestChanged();
+      SetBlendMode();
+    }
     return;
   case BPMEM_BIAS:  // BIAS
-    PRIM_LOG("ztex bias=0x%x", bpmem.ztex1.bias);
+    PRIM_LOG("ztex bias=0x%x", bpmem.ztex1.bias.Value());
     if (bp.changes)
       PixelShaderManager::SetZTextureBias();
     return;
@@ -326,6 +333,8 @@ static void BPWritten(const BPCmd& bp)
   {
     if (bp.changes & 3)
       PixelShaderManager::SetZTextureTypeChanged();
+    if (bp.changes & 12)
+      PixelShaderManager::SetZTextureOpChanged();
 #if defined(_DEBUG) || defined(DEBUGFAST)
     const char* pzop[] = {"DISABLE", "ADD", "REPLACE", "?"};
     const char* pztype[] = {"Z8", "Z16", "Z24", "?"};
@@ -383,6 +392,7 @@ static void BPWritten(const BPCmd& bp)
   {
     u8 offset = bp.address & 2;
     BoundingBox::active = true;
+    PixelShaderManager::SetBoundingBoxActive(true);
 
     if (g_ActiveConfig.backend_info.bSupportsBBox && g_ActiveConfig.bBBoxEnable)
     {
@@ -393,16 +403,14 @@ static void BPWritten(const BPCmd& bp)
     return;
   case BPMEM_TEXINVALIDATE:
     // TODO: Needs some restructuring in TextureCacheBase.
+    TextureCacheBase::InvalidateAllBindPoints();
     return;
 
   case BPMEM_ZCOMPARE:  // Set the Z-Compare and EFB pixel format
     OnPixelFormatChange();
     if (bp.changes & 7)
-    {
       SetBlendMode();  // dual source could be activated by changing to PIXELFMT_RGBA6_Z24
-      g_renderer->SetColorMask();  // alpha writing needs to be disabled if the new pixel format
-                                   // doesn't have an alpha channel
-    }
+    PixelShaderManager::SetZModeControl();
     return;
 
   case BPMEM_MIPMAP_STRIDE:  // MipMap Stride Channel
@@ -418,6 +426,11 @@ static void BPWritten(const BPCmd& bp)
    * 3 BC0 - Ind. Tex Stage 0 NTexCoord
    * 0 BI0 - Ind. Tex Stage 0 NTexMap */
   case BPMEM_IREF:
+  {
+    if (bp.changes)
+      PixelShaderManager::SetTevIndirectChanged();
+    return;
+  }
 
   case BPMEM_TEV_KSEL:      // Texture Environment Swap Mode Table 0
   case BPMEM_TEV_KSEL + 1:  // Texture Environment Swap Mode Table 1
@@ -427,6 +440,8 @@ static void BPWritten(const BPCmd& bp)
   case BPMEM_TEV_KSEL + 5:  // Texture Environment Swap Mode Table 5
   case BPMEM_TEV_KSEL + 6:  // Texture Environment Swap Mode Table 6
   case BPMEM_TEV_KSEL + 7:  // Texture Environment Swap Mode Table 7
+    PixelShaderManager::SetTevKSel(bp.address - BPMEM_TEV_KSEL, bp.newvalue);
+    return;
 
   /* This Register can be used to limit to which bits of BP registers is
    * actually written to. The mask is only valid for the next BP write,
@@ -495,6 +510,8 @@ static void BPWritten(const BPCmd& bp)
 
       if (g_bRecordFifoData)
         FifoRecorder::GetInstance().UseMemory(src_addr, bytes_read, MemoryUpdate::TMEM);
+
+      TextureCacheBase::InvalidateAllBindPoints();
     }
     return;
 
@@ -557,6 +574,7 @@ static void BPWritten(const BPCmd& bp)
   // -------------------------
   case BPMEM_TREF:
   case BPMEM_TREF + 4:
+    PixelShaderManager::SetTevOrder(bp.address - BPMEM_TREF, bp.newvalue);
     return;
   // ----------------------
   // Set wrap size
@@ -578,10 +596,12 @@ static void BPWritten(const BPCmd& bp)
   // ------------------------
   case BPMEM_TX_SETMODE0:  // (0x90 for linear)
   case BPMEM_TX_SETMODE0_4:
+    TextureCacheBase::InvalidateAllBindPoints();
     return;
 
   case BPMEM_TX_SETMODE1:
   case BPMEM_TX_SETMODE1_4:
+    TextureCacheBase::InvalidateAllBindPoints();
     return;
   // --------------------------------------------
   // BPMEM_TX_SETIMAGE0 - Texture width, height, format
@@ -598,6 +618,7 @@ static void BPWritten(const BPCmd& bp)
   case BPMEM_TX_SETIMAGE2_4:
   case BPMEM_TX_SETIMAGE3:
   case BPMEM_TX_SETIMAGE3_4:
+    TextureCacheBase::InvalidateAllBindPoints();
     return;
   // -------------------------------
   // Set a TLUT
@@ -605,6 +626,7 @@ static void BPWritten(const BPCmd& bp)
   // -------------------------------
   case BPMEM_TX_SETTLUT:
   case BPMEM_TX_SETTLUT_4:
+    TextureCacheBase::InvalidateAllBindPoints();
     return;
 
   default:
@@ -616,15 +638,18 @@ static void BPWritten(const BPCmd& bp)
   // --------------
   // Indirect Tev
   // --------------
-  case BPMEM_IND_CMD:  // Indirect 0-15
+  case BPMEM_IND_CMD:
+    PixelShaderManager::SetTevIndirectChanged();
     return;
   // --------------------------------------------------
   // Set Color/Alpha of a Tev
   // BPMEM_TEV_COLOR_ENV - Dest, Shift, Clamp, Sub, Bias, Sel A, Sel B, Sel C, Sel D
   // BPMEM_TEV_ALPHA_ENV - Dest, Shift, Clamp, Sub, Bias, Sel A, Sel B, Sel C, Sel D, T Swap, R Swap
   // --------------------------------------------------
-  case BPMEM_TEV_COLOR_ENV:       // Texture Environment Color/Alpha 0-7
-  case BPMEM_TEV_COLOR_ENV + 16:  // Texture Environment Color/Alpha 8-15
+  case BPMEM_TEV_COLOR_ENV:  // Texture Environment 1
+  case BPMEM_TEV_COLOR_ENV + 16:
+    PixelShaderManager::SetTevCombiner((bp.address - BPMEM_TEV_COLOR_ENV) >> 1,
+                                       (bp.address - BPMEM_TEV_COLOR_ENV) & 1, bp.newvalue);
     return;
   default:
     break;
@@ -1268,7 +1293,7 @@ void GetBPRegInfo(const u8* data, std::string* name, std::string* desc)
                          "Tex sel: %d\n",
                          (data[0] - BPMEM_TEV_ALPHA_ENV) / 2, tevin[ac.a], tevin[ac.b], tevin[ac.c],
                          tevin[ac.d], tevbias[ac.bias], tevop[ac.op], no_yes[ac.clamp],
-                         tevscale[ac.shift], tevout[ac.dest], ac.rswap, ac.tswap);
+                         tevscale[ac.shift], tevout[ac.dest], ac.rswap.Value(), ac.tswap.Value());
     break;
   }
 
@@ -1374,9 +1399,6 @@ void BPReload()
   SetGenerationMode();
   SetScissor();
   SetDepthMode();
-  SetLogicOpMode();
-  SetDitherMode();
   SetBlendMode();
-  SetColorMask();
   OnPixelFormatChange();
 }

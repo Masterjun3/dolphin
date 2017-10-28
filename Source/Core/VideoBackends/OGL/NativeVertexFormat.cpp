@@ -2,16 +2,13 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include "Common/Common.h"
+#include "Common/CommonTypes.h"
 #include "Common/GL/GLUtil.h"
-#include "Common/MemoryUtil.h"
-#include "Common/x64ABI.h"
-#include "Common/x64Emitter.h"
+#include "Common/MsgHandler.h"
 
 #include "VideoBackends/OGL/ProgramShaderCache.h"
 #include "VideoBackends/OGL/VertexManager.h"
 
-#include "VideoCommon/CPMemory.h"
 #include "VideoCommon/NativeVertexFormat.h"
 #include "VideoCommon/VertexShaderGen.h"
 
@@ -20,10 +17,10 @@
 
 namespace OGL
 {
-NativeVertexFormat*
+std::unique_ptr<NativeVertexFormat>
 VertexManager::CreateNativeVertexFormat(const PortableVertexDeclaration& vtx_decl)
 {
-  return new GLVertexFormat(vtx_decl);
+  return std::make_unique<GLVertexFormat>(vtx_decl);
 }
 
 static inline GLuint VarToGL(VarType t)
@@ -60,10 +57,11 @@ GLVertexFormat::GLVertexFormat(const PortableVertexDeclaration& _vtx_decl)
 
   glGenVertexArrays(1, &VAO);
   glBindVertexArray(VAO);
+  ProgramShaderCache::BindVertexFormat(this);
 
   // the element buffer is bound directly to the vao, so we must it set for every vao
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vm->m_index_buffers);
-  glBindBuffer(GL_ARRAY_BUFFER, vm->m_vertex_buffers);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vm->GetIndexBufferHandle());
+  glBindBuffer(GL_ARRAY_BUFFER, vm->GetVertexBufferHandle());
 
   SetPointer(SHADER_POSITION_ATTRIB, vertex_stride, _vtx_decl.position);
 
@@ -77,16 +75,10 @@ GLVertexFormat::GLVertexFormat(const PortableVertexDeclaration& _vtx_decl)
     SetPointer(SHADER_TEXTURE0_ATTRIB + i, vertex_stride, _vtx_decl.texcoords[i]);
 
   SetPointer(SHADER_POSMTX_ATTRIB, vertex_stride, _vtx_decl.posmtx);
-
-  vm->m_last_vao = VAO;
 }
 
 GLVertexFormat::~GLVertexFormat()
 {
   glDeleteVertexArrays(1, &VAO);
-}
-
-void GLVertexFormat::SetupVertexPointers()
-{
 }
 }

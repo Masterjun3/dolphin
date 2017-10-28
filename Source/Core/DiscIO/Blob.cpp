@@ -7,16 +7,19 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "Common/CDUtils.h"
 #include "Common/CommonTypes.h"
-#include "Common/FileUtil.h"
+#include "Common/File.h"
 
 #include "DiscIO/Blob.h"
 #include "DiscIO/CISOBlob.h"
 #include "DiscIO/CompressedBlob.h"
+#include "DiscIO/DirectoryBlob.h"
 #include "DiscIO/DriveBlob.h"
 #include "DiscIO/FileBlob.h"
+#include "DiscIO/TGCBlob.h"
 #include "DiscIO/WbfsBlob.h"
 
 namespace DiscIO
@@ -171,25 +174,40 @@ u32 SectorReader::ReadChunk(u8* buffer, u64 chunk_num)
   return 0;
 }
 
-std::unique_ptr<IBlobReader> CreateBlobReader(const std::string& filename)
+std::unique_ptr<BlobReader> CreateBlobReader(const std::string& filename)
 {
   if (cdio_is_cdrom(filename))
     return DriveReader::Create(filename);
 
-  if (!File::Exists(filename))
+  File::IOFile file(filename, "rb");
+  u32 magic;
+  if (!file.ReadArray(&magic, 1))
     return nullptr;
 
-  if (IsWbfsBlob(filename))
-    return WbfsFileReader::Create(filename);
+  // Conveniently, every supported file format (except for plain disc images and
+  // extracted discs) starts with a 4-byte magic number that identifies the format,
+  // so we just need a simple switch statement to create the right blob type. If the
+  // magic number doesn't match any known magic number and the directory structure
+  // doesn't match the directory blob format, we assume it's a plain disc image. If
+  // that assumption is wrong, the volume code that runs later will notice the error
+  // because the blob won't provide the right data when reading the GC/Wii disc header.
 
-  if (IsGCZBlob(filename))
-    return CompressedBlobReader::Create(filename);
+  switch (magic)
+  {
+  case CISO_MAGIC:
+    return CISOFileReader::Create(std::move(file));
+  case GCZ_MAGIC:
+    return CompressedBlobReader::Create(std::move(file), filename);
+  case TGC_MAGIC:
+    return TGCFileReader::Create(std::move(file));
+  case WBFS_MAGIC:
+    return WbfsFileReader::Create(std::move(file), filename);
+  default:
+    if (auto directory_blob = DirectoryBlobReader::Create(filename))
+      return std::move(directory_blob);
 
-  if (IsCISOBlob(filename))
-    return CISOFileReader::Create(filename);
-
-  // Still here? Assume plain file - since we know it exists due to the File::Exists check above.
-  return PlainFileReader::Create(filename);
+    return PlainFileReader::Create(std::move(file));
+  }
 }
 
 }  // namespace

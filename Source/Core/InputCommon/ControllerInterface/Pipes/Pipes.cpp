@@ -41,7 +41,7 @@ static double StringToDouble(const std::string& text)
   return result;
 }
 
-void Init()
+void PopulateDevices()
 {
   // Search the Pipes directory for files that we can open in read-only,
   // non-blocking mode. The device name is the virtual name of the file.
@@ -136,8 +136,7 @@ void PipeDevice::SetAxis(const std::string& entry, double value)
 
 void PipeDevice::ParseCommand(const std::string& command)
 {
-  std::vector<std::string> tokens;
-  SplitString(command, ' ', tokens);
+  const std::vector<std::string> tokens = SplitString(command, ' ');
   if (tokens.size() < 2 || tokens.size() > 4)
     return;
   if (tokens[0] == "PRESS" || tokens[0] == "RELEASE")

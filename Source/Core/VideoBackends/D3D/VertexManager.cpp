@@ -2,6 +2,10 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "VideoBackends/D3D/VertexManager.h"
+
+#include <d3d11.h>
+
 #include "Common/CommonTypes.h"
 
 #include "VideoBackends/D3D/BoundingBox.h"
@@ -10,12 +14,12 @@
 #include "VideoBackends/D3D/GeometryShaderCache.h"
 #include "VideoBackends/D3D/PixelShaderCache.h"
 #include "VideoBackends/D3D/Render.h"
-#include "VideoBackends/D3D/VertexManager.h"
 #include "VideoBackends/D3D/VertexShaderCache.h"
 
 #include "VideoCommon/BoundingBox.h"
 #include "VideoCommon/Debugger.h"
 #include "VideoCommon/IndexGenerator.h"
+#include "VideoCommon/NativeVertexFormat.h"
 #include "VideoCommon/RenderBase.h"
 #include "VideoCommon/Statistics.h"
 #include "VideoCommon/VertexLoaderManager.h"
@@ -42,7 +46,7 @@ void VertexManager::CreateDeviceObjects()
     m_buffers[i] = nullptr;
     CHECK(SUCCEEDED(D3D::device->CreateBuffer(&bufdesc, nullptr, &m_buffers[i])),
           "Failed to create buffer.");
-    D3D::SetDebugObjectName((ID3D11DeviceChild*)m_buffers[i], "Buffer of VertexManager");
+    D3D::SetDebugObjectName(m_buffers[i], "Buffer of VertexManager");
   }
 
   m_currentBuffer = 0;
@@ -123,39 +127,23 @@ void VertexManager::Draw(u32 stride)
   u32 baseVertex = m_vertexDrawOffset / stride;
   u32 startIndex = m_indexDrawOffset / sizeof(u16);
 
-  switch (m_current_primitive_type)
-  {
-  case PRIMITIVE_POINTS:
-    D3D::stateman->SetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
-    static_cast<Renderer*>(g_renderer.get())->ApplyCullDisable();
-    break;
-  case PRIMITIVE_LINES:
-    D3D::stateman->SetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
-    static_cast<Renderer*>(g_renderer.get())->ApplyCullDisable();
-    break;
-  case PRIMITIVE_TRIANGLES:
-    D3D::stateman->SetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    break;
-  }
-
   D3D::stateman->Apply();
   D3D::context->DrawIndexed(indices, startIndex, baseVertex);
 
   INCSTAT(stats.thisFrame.numDrawCalls);
-
-  if (m_current_primitive_type != PRIMITIVE_TRIANGLES)
-    static_cast<Renderer*>(g_renderer.get())->RestoreCull();
 }
 
-void VertexManager::vFlush(bool useDstAlpha)
+void VertexManager::vFlush()
 {
-  if (!PixelShaderCache::SetShader(useDstAlpha ? DSTALPHA_DUAL_SOURCE_BLEND : DSTALPHA_NONE))
+  if (!PixelShaderCache::SetShader())
   {
     GFX_DEBUGGER_PAUSE_LOG_AT(NEXT_ERROR, true, { printf("Fail to set pixel shader\n"); });
     return;
   }
 
-  if (!VertexShaderCache::SetShader())
+  D3DVertexFormat* vertex_format =
+      static_cast<D3DVertexFormat*>(VertexLoaderManager::GetCurrentVertexFormat());
+  if (!VertexShaderCache::SetShader(vertex_format))
   {
     GFX_DEBUGGER_PAUSE_LOG_AT(NEXT_ERROR, true, { printf("Fail to set pixel shader\n"); });
     return;
@@ -178,8 +166,7 @@ void VertexManager::vFlush(bool useDstAlpha)
 
   PrepareDrawBuffers(stride);
 
-  VertexLoaderManager::GetCurrentVertexFormat()->SetupVertexPointers();
-  g_renderer->ApplyState(useDstAlpha);
+  g_renderer->ApplyState();
 
   Draw(stride);
 

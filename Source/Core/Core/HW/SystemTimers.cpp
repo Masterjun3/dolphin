@@ -13,7 +13,7 @@ rather than time, so if a game can't keep up with the normal framerate all anima
 actions slows down and the game runs to slow. This is different from PC games that are
 often controlled by time instead and may not have maximum framerates.
 
-However, I'm not sure if the Bluetooth communication for the Wiimote is entirely frame
+However, I'm not sure if the Bluetooth communication for the Wii Remote is entirely frame
 dependent, the timing problems with the ack command in Zelda - TP may be related to
 time rather than frames? For now the IPC_HLE_PERIOD is frame dependent, but because of
 different conditions on the way to PluginWiimote::Wiimote_Update() the updates may actually
@@ -25,25 +25,29 @@ would mean one update per frame and [GetTicksPerSecond() / 250] would mean four 
 frame.
 
 
-IPC_HLE_PERIOD: For the Wiimote this is the call schedule:
+IPC_HLE_PERIOD: For the Wii Remote this is the call schedule:
   IPC_HLE_UpdateCallback() // In this file
 
     // This function seems to call all devices' Update() function four times per frame
-    WII_IPC_HLE_Interface::Update()
+    IOS::HLE::Update()
 
       // If the AclFrameQue is empty this will call Wiimote_Update() and make it send
       the current input status to the game. I'm not sure if this occurs approximately
       once every frame or if the frequency is not exactly tied to rendered frames
-      CWII_IPC_HLE_Device_usb_oh1_57e_305::Update()
+      IOS::HLE::Device::BluetoothEmu::Update()
       PluginWiimote::Wiimote_Update()
 
-      // This is also a device updated by WII_IPC_HLE_Interface::Update() but it doesn't
+      // This is also a device updated by IOS::HLE::Update() but it doesn't
       seem to ultimately call PluginWiimote::Wiimote_Update(). However it can be called
       by the /dev/usb/oh1 device if the AclFrameQue is empty.
-      CWII_IPC_HLE_WiiMote::Update()
+      IOS::HLE::WiimoteDevice::Update()
 */
 
 #include "Core/HW/SystemTimers.h"
+
+#include <cmath>
+#include <cstdlib>
+
 #include "Common/Atomic.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
@@ -55,9 +59,9 @@ IPC_HLE_PERIOD: For the Wiimote this is the call schedule:
 #include "Core/DSPEmulator.h"
 #include "Core/HW/AudioInterface.h"
 #include "Core/HW/DSP.h"
-#include "Core/HW/EXI_DeviceIPL.h"
+#include "Core/HW/EXI/EXI_DeviceIPL.h"
 #include "Core/HW/VideoInterface.h"
-#include "Core/IPC_HLE/WII_IPC_HLE.h"
+#include "Core/IOS/IOS.h"
 #include "Core/PatchEngine.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "VideoCommon/Fifo.h"
@@ -112,7 +116,7 @@ static void IPC_HLE_UpdateCallback(u64 userdata, s64 cyclesLate)
 {
   if (SConfig::GetInstance().bWii)
   {
-    WII_IPC_HLE_Interface::UpdateDevices();
+    IOS::HLE::GetIOS()->UpdateDevices();
     CoreTiming::ScheduleEvent(s_ipc_hle_period - cyclesLate, et_IPC_HLE);
   }
 }
@@ -223,10 +227,17 @@ static void ThrottleCallback(u64 last_time, s64 cyclesLate)
 // SystemTimers::Init
 void PreInit()
 {
-  if (SConfig::GetInstance().bWii)
+  ChangePPCClock(SConfig::GetInstance().bWii ? Mode::Wii : Mode::GC);
+}
+
+void ChangePPCClock(Mode mode)
+{
+  const u32 previous_clock = s_cpu_core_clock;
+  if (mode == Mode::Wii)
     s_cpu_core_clock = 729000000u;
   else
     s_cpu_core_clock = 486000000u;
+  CoreTiming::AdjustEventQueueTimes(s_cpu_core_clock, previous_clock);
 }
 
 void Init()
@@ -236,8 +247,6 @@ void Init()
     // AyuanX: TO BE TWEAKED
     // Now the 1500 is a pure assumption
     // We need to figure out the real frequency though
-
-    // FYI, WII_IPC_HLE_Interface::Update is also called in WII_IPCInterface::Write32
     const int freq = 1500;
     s_ipc_hle_period = GetTicksPerSecond() / freq;
   }
@@ -252,8 +261,11 @@ void Init()
     s_localtime_rtc_offset =
         Common::Timer::GetLocalTimeSinceJan1970() - SConfig::GetInstance().m_customRTCValue;
   }
-  CoreTiming::SetFakeTBStartValue((u64)(s_cpu_core_clock / TIMER_RATIO) *
-                                  (u64)CEXIIPL::GetGCTime());
+
+  CoreTiming::SetFakeTBStartValue(static_cast<u64>(s_cpu_core_clock / TIMER_RATIO) *
+                                  static_cast<u64>(ExpansionInterface::CEXIIPL::GetEmulatedTime(
+                                      ExpansionInterface::CEXIIPL::GC_EPOCH)));
+
   CoreTiming::SetFakeTBStartTicks(CoreTiming::GetTicks());
 
   CoreTiming::SetFakeDecStartValue(0xFFFFFFFF);

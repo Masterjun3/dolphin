@@ -23,7 +23,8 @@ public:
   static bool CheckValidationLayerAvailablility();
 
   // Helper method to create a Vulkan instance.
-  static VkInstance CreateVulkanInstance(bool enable_surface, bool enable_validation_layer);
+  static VkInstance CreateVulkanInstance(bool enable_surface, bool enable_debug_report,
+                                         bool enable_validation_layer);
 
   // Returns a list of Vulkan-compatible GPUs.
   using GPUList = std::vector<VkPhysicalDevice>;
@@ -34,6 +35,7 @@ public:
   static void PopulateBackendInfo(VideoConfig* config);
   static void PopulateBackendInfoAdapters(VideoConfig* config, const GPUList& gpu_list);
   static void PopulateBackendInfoFeatures(VideoConfig* config, VkPhysicalDevice gpu,
+                                          const VkPhysicalDeviceProperties& properties,
                                           const VkPhysicalDeviceFeatures& features);
   static void PopulateBackendInfoMultisampleModes(VideoConfig* config, VkPhysicalDevice gpu,
                                                   const VkPhysicalDeviceProperties& properties);
@@ -42,11 +44,10 @@ public:
   // This assumes that PopulateBackendInfo and PopulateBackendInfoAdapters has already
   // been called for the specified VideoConfig.
   static std::unique_ptr<VulkanContext> Create(VkInstance instance, VkPhysicalDevice gpu,
-                                               VkSurfaceKHR surface, VideoConfig* config,
+                                               VkSurfaceKHR surface, bool enable_debug_reports,
                                                bool enable_validation_layer);
 
   // Enable/disable debug message runtime.
-  // In the future this could be hooked up to the Host GPU logging option.
   bool EnableDebugReports();
   void DisableDebugReports();
 
@@ -56,6 +57,8 @@ public:
   VkDevice GetDevice() const { return m_device; }
   VkQueue GetGraphicsQueue() const { return m_graphics_queue; }
   u32 GetGraphicsQueueFamilyIndex() const { return m_graphics_queue_family_index; }
+  VkQueue GetPresentQueue() const { return m_present_queue; }
+  u32 GetPresentQueueFamilyIndex() const { return m_present_queue_family_index; }
   const VkQueueFamilyProperties& GetGraphicsQueueProperties() const
   {
     return m_graphics_queue_properties;
@@ -106,9 +109,8 @@ public:
 private:
   using ExtensionList = std::vector<const char*>;
   static bool SelectInstanceExtensions(ExtensionList* extension_list, bool enable_surface,
-                                       bool enable_validation_layer);
-  bool SelectDeviceExtensions(ExtensionList* extension_list, bool enable_surface,
-                              bool enable_validation_layer);
+                                       bool enable_debug_report);
+  bool SelectDeviceExtensions(ExtensionList* extension_list, bool enable_surface);
   bool SelectDeviceFeatures();
   bool CreateDevice(VkSurfaceKHR surface, bool enable_validation_layer);
 
@@ -118,6 +120,8 @@ private:
 
   VkQueue m_graphics_queue = VK_NULL_HANDLE;
   u32 m_graphics_queue_family_index = 0;
+  VkQueue m_present_queue = VK_NULL_HANDLE;
+  u32 m_present_queue_family_index = 0;
   VkQueueFamilyProperties m_graphics_queue_properties = {};
 
   VkDebugReportCallbackEXT m_debug_report_callback = VK_NULL_HANDLE;

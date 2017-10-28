@@ -3,9 +3,8 @@
 // Refer to the license.txt file included.
 
 #include "AudioCommon/AudioCommon.h"
-#include "AudioCommon/AOSoundStream.h"
 #include "AudioCommon/AlsaSoundStream.h"
-#include "AudioCommon/CoreAudioSoundStream.h"
+#include "AudioCommon/CubebStream.h"
 #include "AudioCommon/Mixer.h"
 #include "AudioCommon/NullSoundStream.h"
 #include "AudioCommon/OpenALStream.h"
@@ -16,9 +15,7 @@
 #include "Common/Common.h"
 #include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
-#include "Common/MsgHandler.h"
 #include "Core/ConfigManager.h"
-#include "Core/Movie.h"
 
 // This shouldn't be a global, at least not here.
 std::unique_ptr<SoundStream> g_sound_stream;
@@ -33,9 +30,11 @@ static const int AUDIO_VOLUME_MAX = 100;
 void InitSoundStream()
 {
   std::string backend = SConfig::GetInstance().sBackend;
-  if (backend == BACKEND_OPENAL && OpenALStream::isValid())
+  if (backend == BACKEND_CUBEB)
+    g_sound_stream = std::make_unique<CubebStream>();
+  else if (backend == BACKEND_OPENAL && OpenALStream::isValid())
     g_sound_stream = std::make_unique<OpenALStream>();
-  else if (backend == BACKEND_NULLSOUND && NullSound::isValid())
+  else if (backend == BACKEND_NULLSOUND)
     g_sound_stream = std::make_unique<NullSound>();
   else if (backend == BACKEND_XAUDIO2)
   {
@@ -44,25 +43,19 @@ void InitSoundStream()
     else if (XAudio2_7::isValid())
       g_sound_stream = std::make_unique<XAudio2_7>();
   }
-  else if (backend == BACKEND_AOSOUND && AOSound::isValid())
-    g_sound_stream = std::make_unique<AOSound>();
   else if (backend == BACKEND_ALSA && AlsaSound::isValid())
     g_sound_stream = std::make_unique<AlsaSound>();
-  else if (backend == BACKEND_COREAUDIO && CoreAudioSound::isValid())
-    g_sound_stream = std::make_unique<CoreAudioSound>();
   else if (backend == BACKEND_PULSEAUDIO && PulseAudio::isValid())
     g_sound_stream = std::make_unique<PulseAudio>();
   else if (backend == BACKEND_OPENSLES && OpenSLESStream::isValid())
     g_sound_stream = std::make_unique<OpenSLESStream>();
 
-  if (!g_sound_stream && NullSound::isValid())
+  if (!g_sound_stream)
   {
     WARN_LOG(AUDIO, "Could not initialize backend %s, using %s instead.", backend.c_str(),
              BACKEND_NULLSOUND);
     g_sound_stream = std::make_unique<NullSound>();
   }
-
-  UpdateSoundStream();
 
   if (!g_sound_stream->Start())
   {
@@ -72,6 +65,8 @@ void InitSoundStream()
     g_sound_stream = std::make_unique<NullSound>();
     g_sound_stream->Start();
   }
+
+  UpdateSoundStream();
 
   if (SConfig::GetInstance().m_DumpAudio && !s_audio_dump_start)
     StartAudioDump();
@@ -94,20 +89,32 @@ void ShutdownSoundStream()
   INFO_LOG(AUDIO, "Done shutting down sound stream");
 }
 
+std::string GetDefaultSoundBackend()
+{
+  std::string backend = BACKEND_NULLSOUND;
+#if defined ANDROID
+  backend = BACKEND_OPENSLES;
+#elif defined __linux__
+  if (AlsaSound::isValid())
+    backend = BACKEND_ALSA;
+#elif defined __APPLE__
+  backend = BACKEND_CUBEB;
+#elif defined _WIN32
+  backend = BACKEND_XAUDIO2;
+#endif
+  return backend;
+}
+
 std::vector<std::string> GetSoundBackends()
 {
   std::vector<std::string> backends;
 
-  if (NullSound::isValid())
-    backends.push_back(BACKEND_NULLSOUND);
+  backends.push_back(BACKEND_NULLSOUND);
+  backends.push_back(BACKEND_CUBEB);
   if (XAudio2_7::isValid() || XAudio2::isValid())
     backends.push_back(BACKEND_XAUDIO2);
-  if (AOSound::isValid())
-    backends.push_back(BACKEND_AOSOUND);
   if (AlsaSound::isValid())
     backends.push_back(BACKEND_ALSA);
-  if (CoreAudioSound::isValid())
-    backends.push_back(BACKEND_COREAUDIO);
   if (PulseAudio::isValid())
     backends.push_back(BACKEND_PULSEAUDIO);
   if (OpenALStream::isValid())
@@ -123,6 +130,8 @@ bool SupportsDPL2Decoder(const std::string& backend)
   if (backend == BACKEND_OPENAL)
     return true;
 #endif
+  if (backend == BACKEND_CUBEB)
+    return true;
   if (backend == BACKEND_PULSEAUDIO)
     return true;
   return false;
@@ -138,7 +147,7 @@ bool SupportsVolumeChanges(const std::string& backend)
   // FIXME: this one should ask the backend whether it supports it.
   //       but getting the backend from string etc. is probably
   //       too much just to enable/disable a stupid slider...
-  return backend == BACKEND_COREAUDIO || backend == BACKEND_OPENAL || backend == BACKEND_XAUDIO2;
+  return backend == BACKEND_CUBEB || backend == BACKEND_OPENAL || backend == BACKEND_XAUDIO2;
 }
 
 void UpdateSoundStream()
@@ -150,10 +159,10 @@ void UpdateSoundStream()
   }
 }
 
-void ClearAudioBuffer(bool mute)
+void SetSoundStreamRunning(bool running)
 {
   if (g_sound_stream)
-    g_sound_stream->Clear(mute);
+    g_sound_stream->SetRunning(running);
 }
 
 void SendAIBuffer(const short* samples, unsigned int num_samples)
@@ -166,7 +175,7 @@ void SendAIBuffer(const short* samples, unsigned int num_samples)
   else if (!SConfig::GetInstance().m_DumpAudio && s_audio_dump_start)
     StopAudioDump();
 
-  CMixer* pMixer = g_sound_stream->GetMixer();
+  Mixer* pMixer = g_sound_stream->GetMixer();
 
   if (pMixer && samples)
   {

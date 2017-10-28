@@ -30,6 +30,7 @@ alignas(16) static float g_fProjectionMatrix[16];
 
 // track changes
 static bool bTexMatricesChanged[2], bPosNormalMatrixChanged, bProjectionChanged, bViewportChanged;
+static bool bTexMtxInfoChanged, bLightingConfigChanged;
 static BitSet32 nMaterialsChanged;
 static int nTransformMatricesChanged[2];      // min,max
 static int nNormalMatricesChanged[2];         // min,max
@@ -56,8 +57,8 @@ struct ProjectionHack
 namespace
 {
 // Control Variables
-static ProjectionHack g_ProjHack1;
-static ProjectionHack g_ProjHack2;
+static ProjectionHack g_proj_hack_near;
+static ProjectionHack g_proj_hack_far;
 }  // Namespace
 
 static float PHackValue(std::string sValue)
@@ -92,48 +93,39 @@ static float PHackValue(std::string sValue)
   return f;
 }
 
-// Due to the BT.601 standard which the GameCube is based on being a compromise
-// between PAL and NTSC, neither standard gets square pixels. They are each off
-// by ~9% in opposite directions.
-// Just in case any game decides to take this into account, we do both these
-// tests with a large amount of slop.
-static bool AspectIs4_3(float width, float height)
+void UpdateProjectionHack(const ProjectionHackConfig& config)
 {
-  float aspect = fabsf(width / height);
-  return fabsf(aspect - 4.0f / 3.0f) < 4.0f / 3.0f * 0.11;  // within 11% of 4:3
-}
+  float near_value = 0, far_value = 0;
+  float near_sign = 1.0, far_sign = 1.0;
 
-static bool AspectIs16_9(float width, float height)
-{
-  float aspect = fabsf(width / height);
-  return fabsf(aspect - 16.0f / 9.0f) < 16.0f / 9.0f * 0.11;  // within 11% of 16:9
-}
-
-void UpdateProjectionHack(int iPhackvalue[], std::string sPhackvalue[])
-{
-  float fhackvalue1 = 0, fhackvalue2 = 0;
-  float fhacksign1 = 1.0, fhacksign2 = 1.0;
-  const char* sTemp[2];
-
-  if (iPhackvalue[0] == 1)
+  if (config.m_enable)
   {
+    const char* near_sign_str = "";
+    const char* far_sign_str = "";
+
     NOTICE_LOG(VIDEO, "\t\t--- Orthographic Projection Hack ON ---");
 
-    fhacksign1 *= (iPhackvalue[1] == 1) ? -1.0f : fhacksign1;
-    sTemp[0] = (iPhackvalue[1] == 1) ? " * (-1)" : "";
-    fhacksign2 *= (iPhackvalue[2] == 1) ? -1.0f : fhacksign2;
-    sTemp[1] = (iPhackvalue[2] == 1) ? " * (-1)" : "";
+    if (config.m_sznear)
+    {
+      near_sign *= -1.0f;
+      near_sign_str = " * (-1)";
+    }
+    if (config.m_szfar)
+    {
+      far_sign *= -1.0f;
+      far_sign_str = " * (-1)";
+    }
 
-    fhackvalue1 = PHackValue(sPhackvalue[0]);
-    NOTICE_LOG(VIDEO, "- zNear Correction = (%f + zNear)%s", fhackvalue1, sTemp[0]);
+    near_value = PHackValue(config.m_znear);
+    NOTICE_LOG(VIDEO, "- zNear Correction = (%f + zNear)%s", near_value, near_sign_str);
 
-    fhackvalue2 = PHackValue(sPhackvalue[1]);
-    NOTICE_LOG(VIDEO, "- zFar Correction =  (%f + zFar)%s", fhackvalue2, sTemp[1]);
+    far_value = PHackValue(config.m_zfar);
+    NOTICE_LOG(VIDEO, "- zFar Correction =  (%f + zFar)%s", far_value, far_sign_str);
   }
 
   // Set the projections hacks
-  g_ProjHack1 = ProjectionHack(fhacksign1, fhackvalue1);
-  g_ProjHack2 = ProjectionHack(fhacksign2, fhackvalue2);
+  g_proj_hack_near = ProjectionHack(near_sign, near_value);
+  g_proj_hack_far = ProjectionHack(far_sign, far_value);
 }
 
 // Viewport correction:
@@ -202,9 +194,11 @@ void VertexShaderManager::Init()
   bPosNormalMatrixChanged = false;
   bProjectionChanged = true;
   bViewportChanged = false;
+  bTexMtxInfoChanged = false;
+  bLightingConfigChanged = false;
 
-  memset(&xfmem, 0, sizeof(xfmem));
-  memset(&constants, 0, sizeof(constants));
+  std::memset(&xfmem, 0, sizeof(xfmem));
+  constants = {};
   ResetView();
 
   // TODO: should these go inside ResetView()?
@@ -233,7 +227,7 @@ void VertexShaderManager::SetConstants()
   {
     int startn = nTransformMatricesChanged[0] / 4;
     int endn = (nTransformMatricesChanged[1] + 3) / 4;
-    memcpy(constants.transformmatrices[startn], &xfmem.posMatrices[startn * 4],
+    memcpy(constants.transformmatrices[startn].data(), &xfmem.posMatrices[startn * 4],
            (endn - startn) * sizeof(float4));
     dirty = true;
     nTransformMatricesChanged[0] = nTransformMatricesChanged[1] = -1;
@@ -245,7 +239,7 @@ void VertexShaderManager::SetConstants()
     int endn = (nNormalMatricesChanged[1] + 2) / 3;
     for (int i = startn; i < endn; i++)
     {
-      memcpy(constants.normalmatrices[i], &xfmem.normalMatrices[3 * i], 12);
+      memcpy(constants.normalmatrices[i].data(), &xfmem.normalMatrices[3 * i], 12);
     }
     dirty = true;
     nNormalMatricesChanged[0] = nNormalMatricesChanged[1] = -1;
@@ -255,7 +249,7 @@ void VertexShaderManager::SetConstants()
   {
     int startn = nPostTransformMatricesChanged[0] / 4;
     int endn = (nPostTransformMatricesChanged[1] + 3) / 4;
-    memcpy(constants.posttransformmatrices[startn], &xfmem.postMatrices[startn * 4],
+    memcpy(constants.posttransformmatrices[startn].data(), &xfmem.postMatrices[startn * 4],
            (endn - startn) * sizeof(float4));
     dirty = true;
     nPostTransformMatricesChanged[0] = nPostTransformMatricesChanged[1] = -1;
@@ -333,10 +327,10 @@ void VertexShaderManager::SetConstants()
     const float* norm =
         &xfmem.normalMatrices[3 * (g_main_cp_state.matrix_index_a.PosNormalMtxIdx & 31)];
 
-    memcpy(constants.posnormalmatrix, pos, 3 * sizeof(float4));
-    memcpy(constants.posnormalmatrix[3], norm, 3 * sizeof(float));
-    memcpy(constants.posnormalmatrix[4], norm + 3, 3 * sizeof(float));
-    memcpy(constants.posnormalmatrix[5], norm + 6, 3 * sizeof(float));
+    memcpy(constants.posnormalmatrix.data(), pos, 3 * sizeof(float4));
+    memcpy(constants.posnormalmatrix[3].data(), norm, 3 * sizeof(float));
+    memcpy(constants.posnormalmatrix[4].data(), norm + 3, 3 * sizeof(float));
+    memcpy(constants.posnormalmatrix[5].data(), norm + 6, 3 * sizeof(float));
     dirty = true;
   }
 
@@ -351,7 +345,7 @@ void VertexShaderManager::SetConstants()
 
     for (size_t i = 0; i < ArraySize(pos_matrix_ptrs); ++i)
     {
-      memcpy(constants.texmatrices[3 * i], pos_matrix_ptrs[i], 3 * sizeof(float4));
+      memcpy(constants.texmatrices[3 * i].data(), pos_matrix_ptrs[i], 3 * sizeof(float4));
     }
     dirty = true;
   }
@@ -367,7 +361,7 @@ void VertexShaderManager::SetConstants()
 
     for (size_t i = 0; i < ArraySize(pos_matrix_ptrs); ++i)
     {
-      memcpy(constants.texmatrices[3 * i + 12], pos_matrix_ptrs[i], 3 * sizeof(float4));
+      memcpy(constants.texmatrices[3 * i + 12].data(), pos_matrix_ptrs[i], 3 * sizeof(float4));
     }
     dirty = true;
   }
@@ -382,35 +376,47 @@ void VertexShaderManager::SetConstants()
     // NOTE: If we ever emulate antialiasing, the sample locations set by
     // BP registers 0x01-0x04 need to be considered here.
     const float pixel_center_correction = 7.0f / 12.0f - 0.5f;
-    const float pixel_size_x = 2.f / Renderer::EFBToScaledXf(2.f * xfmem.viewport.wd);
-    const float pixel_size_y = 2.f / Renderer::EFBToScaledXf(2.f * xfmem.viewport.ht);
+    const bool bUseVertexRounding = g_ActiveConfig.bVertexRounding && g_ActiveConfig.iEFBScale != 1;
+    const float viewport_width = bUseVertexRounding ?
+                                     (2.f * xfmem.viewport.wd) :
+                                     g_renderer->EFBToScaledXf(2.f * xfmem.viewport.wd);
+    const float viewport_height = bUseVertexRounding ?
+                                      (2.f * xfmem.viewport.ht) :
+                                      g_renderer->EFBToScaledXf(2.f * xfmem.viewport.ht);
+    const float pixel_size_x = 2.f / viewport_width;
+    const float pixel_size_y = 2.f / viewport_height;
     constants.pixelcentercorrection[0] = pixel_center_correction * pixel_size_x;
     constants.pixelcentercorrection[1] = pixel_center_correction * pixel_size_y;
 
-    // The depth range is handled in the vertex shader. We need to reverse
-    // the far value to get a reversed depth range mapping. This is necessary
-    // because the standard depth range equation pushes all depth values towards
-    // the back of the depth buffer where conventionally depth buffers have the
-    // least precision.
-    if (g_ActiveConfig.backend_info.bSupportsReversedDepthRange)
+    // By default we don't change the depth value at all in the vertex shader.
+    constants.pixelcentercorrection[2] = 1.0f;
+    constants.pixelcentercorrection[3] = 0.0f;
+
+    constants.viewport[0] = (2.f * xfmem.viewport.wd);
+    constants.viewport[1] = (2.f * xfmem.viewport.ht);
+
+    if (g_renderer->UseVertexDepthRange())
     {
-      // For backends that support reversing the depth range we also support cases
-      // where the console also uses reversed depth with the same accuracy. We need
-      // to make sure the depth range is positive here and then reverse the depth in
-      // the backend viewport.
-      constants.pixelcentercorrection[2] = fabs(xfmem.viewport.zRange) / 16777215.0f;
-      if (xfmem.viewport.zRange < 0.0f)
-        constants.pixelcentercorrection[3] = xfmem.viewport.farZ / 16777215.0f;
+      // Oversized depth ranges are handled in the vertex shader. We need to reverse
+      // the far value to use the reversed-Z trick.
+      if (g_ActiveConfig.backend_info.bSupportsReversedDepthRange)
+      {
+        // Sometimes the console also tries to use the reversed-Z trick. We can only do
+        // that with the expected accuracy if the backend can reverse the depth range.
+        constants.pixelcentercorrection[2] = fabs(xfmem.viewport.zRange) / 16777215.0f;
+        if (xfmem.viewport.zRange < 0.0f)
+          constants.pixelcentercorrection[3] = xfmem.viewport.farZ / 16777215.0f;
+        else
+          constants.pixelcentercorrection[3] = 1.0f - xfmem.viewport.farZ / 16777215.0f;
+      }
       else
+      {
+        // For backends that don't support reversing the depth range we can still render
+        // cases where the console uses the reversed-Z trick. But we simply can't provide
+        // the expected accuracy, which might result in z-fighting.
+        constants.pixelcentercorrection[2] = xfmem.viewport.zRange / 16777215.0f;
         constants.pixelcentercorrection[3] = 1.0f - xfmem.viewport.farZ / 16777215.0f;
-    }
-    else
-    {
-      // For backends that don't support reversing the depth range we can still render
-      // cases where the console uses reversed depth correctly. But we simply can't
-      // provide the same accuracy as the console.
-      constants.pixelcentercorrection[2] = xfmem.viewport.zRange / 16777215.0f;
-      constants.pixelcentercorrection[3] = 1.0f - xfmem.viewport.farZ / 16777215.0f;
+      }
     }
 
     dirty = true;
@@ -437,12 +443,12 @@ void VertexShaderManager::SetConstants()
 
       g_fProjectionMatrix[0] = rawProjection[0] * g_ActiveConfig.fAspectRatioHackW;
       g_fProjectionMatrix[1] = 0.0f;
-      g_fProjectionMatrix[2] = rawProjection[1];
+      g_fProjectionMatrix[2] = rawProjection[1] * g_ActiveConfig.fAspectRatioHackW;
       g_fProjectionMatrix[3] = 0.0f;
 
       g_fProjectionMatrix[4] = 0.0f;
       g_fProjectionMatrix[5] = rawProjection[2] * g_ActiveConfig.fAspectRatioHackH;
-      g_fProjectionMatrix[6] = rawProjection[3];
+      g_fProjectionMatrix[6] = rawProjection[3] * g_ActiveConfig.fAspectRatioHackH;
       g_fProjectionMatrix[7] = 0.0f;
 
       g_fProjectionMatrix[8] = 0.0f;
@@ -456,18 +462,6 @@ void VertexShaderManager::SetConstants()
 
       g_fProjectionMatrix[14] = -1.0f;
       g_fProjectionMatrix[15] = 0.0f;
-
-      // Heuristic to detect if a GameCube game is in 16:9 anamorphic widescreen mode.
-      if (!SConfig::GetInstance().bWii)
-      {
-        bool viewport_is_4_3 = AspectIs4_3(xfmem.viewport.wd, xfmem.viewport.ht);
-        if (AspectIs16_9(rawProjection[2], rawProjection[0]) && viewport_is_4_3)
-          Core::g_aspect_wide = true;  // Projection is 16:9 and viewport is 4:3, we are rendering
-                                       // an anamorphic widescreen picture
-        else if (AspectIs4_3(rawProjection[2], rawProjection[0]) && viewport_is_4_3)
-          Core::g_aspect_wide =
-              false;  // Project and viewports are both 4:3, we are rendering a normal image.
-      }
 
       SETSTAT_FT(stats.gproj_0, g_fProjectionMatrix[0]);
       SETSTAT_FT(stats.gproj_1, g_fProjectionMatrix[1]);
@@ -501,10 +495,10 @@ void VertexShaderManager::SetConstants()
 
       g_fProjectionMatrix[8] = 0.0f;
       g_fProjectionMatrix[9] = 0.0f;
-      g_fProjectionMatrix[10] = (g_ProjHack1.value + rawProjection[4]) *
-                                ((g_ProjHack1.sign == 0) ? 1.0f : g_ProjHack1.sign);
-      g_fProjectionMatrix[11] = (g_ProjHack2.value + rawProjection[5]) *
-                                ((g_ProjHack2.sign == 0) ? 1.0f : g_ProjHack2.sign);
+      g_fProjectionMatrix[10] = (g_proj_hack_near.value + rawProjection[4]) *
+                                ((g_proj_hack_near.sign == 0) ? 1.0f : g_proj_hack_near.sign);
+      g_fProjectionMatrix[11] = (g_proj_hack_far.value + rawProjection[5]) *
+                                ((g_proj_hack_far.sign == 0) ? 1.0f : g_proj_hack_far.sign);
 
       g_fProjectionMatrix[12] = 0.0f;
       g_fProjectionMatrix[13] = 0.0f;
@@ -540,8 +534,8 @@ void VertexShaderManager::SetConstants()
       ERROR_LOG(VIDEO, "Unknown projection type: %d", xfmem.projection.type);
     }
 
-    PRIM_LOG("Projection: %f %f %f %f %f %f\n", rawProjection[0], rawProjection[1],
-             rawProjection[2], rawProjection[3], rawProjection[4], rawProjection[5]);
+    PRIM_LOG("Projection: %f %f %f %f %f %f", rawProjection[0], rawProjection[1], rawProjection[2],
+             rawProjection[3], rawProjection[4], rawProjection[5]);
 
     if (g_ActiveConfig.bFreeLook && xfmem.projection.type == GX_PERSPECTIVE)
     {
@@ -555,7 +549,7 @@ void VertexShaderManager::SetConstants()
       Matrix44::Set(mtxB, g_fProjectionMatrix);
       Matrix44::Multiply(mtxB, viewMtx, mtxA);               // mtxA = projection x view
       Matrix44::Multiply(s_viewportCorrection, mtxA, mtxB);  // mtxB = viewportCorrection x mtxA
-      memcpy(constants.projection, mtxB.data, 4 * sizeof(float4));
+      memcpy(constants.projection.data(), mtxB.data, 4 * sizeof(float4));
     }
     else
     {
@@ -564,8 +558,34 @@ void VertexShaderManager::SetConstants()
 
       Matrix44 correctedMtx;
       Matrix44::Multiply(s_viewportCorrection, projMtx, correctedMtx);
-      memcpy(constants.projection, correctedMtx.data, 4 * sizeof(float4));
+      memcpy(constants.projection.data(), correctedMtx.data, 4 * sizeof(float4));
     }
+
+    dirty = true;
+  }
+
+  if (bTexMtxInfoChanged)
+  {
+    bTexMtxInfoChanged = false;
+    constants.xfmem_dualTexInfo = xfmem.dualTexTrans.enabled;
+    for (size_t i = 0; i < ArraySize(xfmem.texMtxInfo); i++)
+      constants.xfmem_pack1[i][0] = xfmem.texMtxInfo[i].hex;
+    for (size_t i = 0; i < ArraySize(xfmem.postMtxInfo); i++)
+      constants.xfmem_pack1[i][1] = xfmem.postMtxInfo[i].hex;
+
+    dirty = true;
+  }
+
+  if (bLightingConfigChanged)
+  {
+    bLightingConfigChanged = false;
+
+    for (size_t i = 0; i < 2; i++)
+    {
+      constants.xfmem_pack1[i][2] = xfmem.color[i].hex;
+      constants.xfmem_pack1[i][3] = xfmem.alpha[i].hex;
+    }
+    constants.xfmem_numColorChans = xfmem.numChan.numColorChans;
 
     dirty = true;
   }
@@ -766,6 +786,27 @@ void VertexShaderManager::ResetView()
   bProjectionChanged = true;
 }
 
+void VertexShaderManager::SetVertexFormat(u32 components)
+{
+  if (components != constants.components)
+  {
+    constants.components = components;
+    dirty = true;
+  }
+}
+
+void VertexShaderManager::SetTexMatrixInfoChanged(int index)
+{
+  // TODO: Should we track this with more precision, like which indices changed?
+  // The whole vertex constants are probably going to be uploaded regardless.
+  bTexMtxInfoChanged = true;
+}
+
+void VertexShaderManager::SetLightingConfigChanged()
+{
+  bLightingConfigChanged = true;
+}
+
 void VertexShaderManager::TransformToClipSpace(const float* data, float* out, u32 MtxIdx)
 {
   const float* world_matrix = &xfmem.posMatrices[(MtxIdx & 0x3f) * 4];
@@ -808,6 +849,8 @@ void VertexShaderManager::DoState(PointerWrap& p)
   p.Do(bPosNormalMatrixChanged);
   p.Do(bProjectionChanged);
   p.Do(bViewportChanged);
+  p.Do(bTexMtxInfoChanged);
+  p.Do(bLightingConfigChanged);
 
   p.Do(constants);
 

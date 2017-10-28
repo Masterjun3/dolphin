@@ -1,32 +1,45 @@
 package org.dolphinemu.dolphinemu.ui.settings;
 
 import android.app.Activity;
-import android.app.Fragment;
 import android.content.Context;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
+import android.support.v4.app.Fragment;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
-import org.dolphinemu.dolphinemu.BuildConfig;
 import org.dolphinemu.dolphinemu.R;
 import org.dolphinemu.dolphinemu.model.settings.Setting;
 import org.dolphinemu.dolphinemu.model.settings.SettingSection;
 import org.dolphinemu.dolphinemu.model.settings.view.SettingsItem;
 import org.dolphinemu.dolphinemu.ui.DividerItemDecoration;
+import org.dolphinemu.dolphinemu.utils.SettingsFile;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 
 public final class SettingsFragment extends Fragment implements SettingsFragmentView
 {
+	private static final String ARGUMENT_MENU_TAG = "menu_tag";
+
 	private SettingsFragmentPresenter mPresenter = new SettingsFragmentPresenter(this);
 	private SettingsActivityView mActivity;
 
 	private SettingsAdapter mAdapter;
+
+	public static Fragment newInstance(String menuTag)
+	{
+		SettingsFragment fragment = new SettingsFragment();
+
+		Bundle arguments = new Bundle();
+		arguments.putString(ARGUMENT_MENU_TAG, menuTag);
+
+		fragment.setArguments(arguments);
+		return fragment;
+	}
 
 	@Override
 	public void onAttach(Context context)
@@ -83,7 +96,11 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
 		recyclerView.addItemDecoration(new DividerItemDecoration(getActivity(), null));
 
 		SettingsActivityView activity = (SettingsActivityView) getActivity();
-		HashMap<String, SettingSection> settings = activity.getSettings();
+
+		ArrayList<HashMap<String, SettingSection>> settings = new ArrayList<>();
+		settings.add(SettingsFile.SETTINGS_DOLPHIN, activity.getSettings(SettingsFile.SETTINGS_DOLPHIN));
+		settings.add(SettingsFile.SETTINGS_GFX, activity.getSettings(SettingsFile.SETTINGS_GFX));
+		settings.add(SettingsFile.SETTINGS_WIIMOTE, activity.getSettings(SettingsFile.SETTINGS_WIIMOTE));
 
 		mPresenter.onViewCreated(settings);
 	}
@@ -101,13 +118,13 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
 	}
 
 	@Override
-	public void onSettingsFileLoaded(HashMap<String, SettingSection> settings)
+	public void onSettingsFileLoaded(ArrayList<HashMap<String, SettingSection>> settings)
 	{
 		mPresenter.setSettings(settings);
 	}
 
 	@Override
-	public void passSettingsToActivity(HashMap<String, SettingSection> settings)
+	public void passSettingsToActivity(ArrayList<HashMap<String, SettingSection>> settings)
 	{
 		if (mActivity != null)
 		{
@@ -163,18 +180,10 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
 		mActivity.onWiimoteSettingChanged(section, value);
 	}
 
-	public static final String FRAGMENT_TAG = BuildConfig.APPLICATION_ID + ".fragment.settings";
-
-	public static final String ARGUMENT_MENU_TAG = FRAGMENT_TAG + ".menu_tag";
-
-	public static Fragment newInstance(String menuTag)
+	@Override
+	public void onExtensionSettingChanged(String key, int value)
 	{
-		SettingsFragment fragment = new SettingsFragment();
-
-		Bundle arguments = new Bundle();
-		arguments.putString(ARGUMENT_MENU_TAG, menuTag);
-
-		fragment.setArguments(arguments);
-		return fragment;
+		mActivity.onExtensionSettingChanged(key, value);
 	}
+
 }

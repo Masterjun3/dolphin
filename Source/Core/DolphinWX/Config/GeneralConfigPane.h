@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <vector>
 #include <wx/arrstr.h>
 #include <wx/panel.h>
 
@@ -18,15 +19,9 @@ public:
   GeneralConfigPane(wxWindow* parent, wxWindowID id);
 
 private:
-  struct CPUCore
-  {
-    int CPUid;
-    wxString name;
-  };
-  std::vector<CPUCore> cpu_cores;
   void InitializeGUI();
   void LoadGUIValues();
-  void RefreshGUI();
+  void BindEvents();
 
   void OnDualCoreCheckBoxChanged(wxCommandEvent&);
   void OnCheatCheckBoxChanged(wxCommandEvent&);

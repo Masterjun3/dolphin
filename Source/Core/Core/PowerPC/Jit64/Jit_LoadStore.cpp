@@ -6,18 +6,20 @@
 // Should give a very noticable speed boost to paired single heavy code.
 
 #include "Core/PowerPC/Jit64/Jit.h"
+
+#include "Common/Assert.h"
 #include "Common/BitSet.h"
 #include "Common/CommonTypes.h"
 #include "Common/MsgHandler.h"
 #include "Common/x64ABI.h"
 #include "Common/x64Emitter.h"
+
 #include "Core/ConfigManager.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/CPU.h"
-#include "Core/HW/DSP.h"
 #include "Core/HW/Memmap.h"
 #include "Core/PowerPC/Jit64/JitRegCache.h"
-#include "Core/PowerPC/JitCommon/Jit_Util.h"
+#include "Core/PowerPC/Jit64Common/Jit64PowerPCState.h"
 #include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/PowerPC.h"
 
@@ -108,7 +110,7 @@ void Jit64::lXXx(UGeckoInstruction inst)
 
   // PowerPC has no 8-bit sign extended load, but x86 does, so merge extsb with the load if we find
   // it.
-  if (MergeAllowedNextInstructions(1) && accessSize == 8 && js.op[1].inst.OPCD == 31 &&
+  if (CanMergeNextInstructions(1) && accessSize == 8 && js.op[1].inst.OPCD == 31 &&
       js.op[1].inst.SUBOP10 == 954 && js.op[1].inst.RS == inst.RD && js.op[1].inst.RA == inst.RD &&
       !js.op[1].inst.Rc)
   {
@@ -117,7 +119,7 @@ void Jit64::lXXx(UGeckoInstruction inst)
     signExtend = true;
   }
 
-  if (CPU::GetState() != CPU::CPU_STEPPING && inst.OPCD == 32 && MergeAllowedNextInstructions(2) &&
+  if (!CPU::IsStepping() && inst.OPCD == 32 && CanMergeNextInstructions(2) &&
       (inst.hex & 0xFFFF0000) == 0x800D0000 &&
       (js.op[1].inst.hex == 0x28000000 ||
        (SConfig::GetInstance().bWii && js.op[1].inst.hex == 0x2C000000)) &&
@@ -200,7 +202,7 @@ void Jit64::lXXx(UGeckoInstruction inst)
       // If we're using reg+reg mode and b is an immediate, pretend we're using constant offset mode
       bool use_constant_offset = inst.OPCD != 31 || gpr.R(b).IsImm();
 
-      s32 offset;
+      s32 offset = 0;
       if (use_constant_offset)
         offset = inst.OPCD == 31 ? gpr.R(b).SImm32() : (s32)inst.SIMM_16;
       // Depending on whether we have an immediate and/or update, find the optimum way to calculate
@@ -280,7 +282,7 @@ void Jit64::dcbx(UGeckoInstruction inst)
   // Check whether a JIT cache line needs to be invalidated.
   LEA(32, value, MScaled(addr, SCALE_8, 0));  // addr << 3 (masks the first 3 bits)
   SHR(32, R(value), Imm8(3 + 5 + 5));         // >> 5 for cache line size, >> 5 for width of bitset
-  MOV(64, R(tmp), ImmPtr(jit->GetBlockCache()->GetBlockBitSet()));
+  MOV(64, R(tmp), ImmPtr(GetBlockCache()->GetBlockBitSet()));
   MOV(32, R(value), MComplex(tmp, value, SCALE_4, 0));
   SHR(32, R(addr), Imm8(5));
   BT(32, R(value), R(addr));
@@ -316,7 +318,7 @@ void Jit64::dcbt(UGeckoInstruction inst)
   // This is important because invalidating the block cache when we don't
   // need to is terrible for performance.
   // (Invalidating the jit block cache on dcbst is a heuristic.)
-  if (MergeAllowedNextInstructions(1) && js.op[1].inst.OPCD == 31 && js.op[1].inst.SUBOP10 == 54 &&
+  if (CanMergeNextInstructions(1) && js.op[1].inst.OPCD == 31 && js.op[1].inst.SUBOP10 == 54 &&
       js.op[1].inst.RA == inst.RA && js.op[1].inst.RB == inst.RB)
   {
     js.skipInstructions = 1;
@@ -330,6 +332,7 @@ void Jit64::dcbz(UGeckoInstruction inst)
   JITDISABLE(bJITLoadStoreOff);
   if (SConfig::GetInstance().bDCBZOFF)
     return;
+  FALLBACK_IF(SConfig::GetInstance().bLowDCBZHack);
 
   int a = inst.RA;
   int b = inst.RB;
@@ -342,9 +345,11 @@ void Jit64::dcbz(UGeckoInstruction inst)
   if (UReg_MSR(MSR).DR)
   {
     // Perform lookup to see if we can use fast path.
-    MOV(32, R(RSCRATCH2), R(RSCRATCH));
-    SHR(32, R(RSCRATCH2), Imm8(PowerPC::BAT_INDEX_SHIFT));
-    TEST(32, MScaled(RSCRATCH2, SCALE_4, (u32)(u64)&PowerPC::dbat_table[0]), Imm32(2));
+    MOV(64, R(RSCRATCH2), ImmPtr(&PowerPC::dbat_table[0]));
+    PUSH(RSCRATCH);
+    SHR(32, R(RSCRATCH), Imm8(PowerPC::BAT_INDEX_SHIFT));
+    TEST(32, MComplex(RSCRATCH2, RSCRATCH, SCALE_4, 0), Imm32(PowerPC::BAT_PHYSICAL_BIT));
+    POP(RSCRATCH);
     FixupBranch slow = J_CC(CC_Z, true);
 
     // Fast path: compute full address, then zero out 32 bytes of memory.
@@ -356,7 +361,7 @@ void Jit64::dcbz(UGeckoInstruction inst)
     SwitchToFarCode();
     SetJumpTarget(slow);
   }
-  MOV(32, M(&PC), Imm32(jit->js.compilerPC));
+  MOV(32, PPCSTATE(pc), Imm32(js.compilerPC));
   BitSet32 registersInUse = CallerSavedRegistersInUse();
   ABI_PushRegistersAndAdjustStack(registersInUse, 0);
   ABI_CallFunctionR(PowerPC::ClearCacheLine, RSCRATCH);

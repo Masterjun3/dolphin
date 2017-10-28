@@ -33,14 +33,10 @@ CommandBufferManager::~CommandBufferManager()
   vkDeviceWaitIdle(g_vulkan_context->GetDevice());
 
   DestroyCommandBuffers();
-  DestroyCommandPool();
 }
 
 bool CommandBufferManager::Initialize()
 {
-  if (!CreateCommandPool())
-    return false;
-
   if (!CreateCommandBuffers())
     return false;
 
@@ -50,48 +46,31 @@ bool CommandBufferManager::Initialize()
   return true;
 }
 
-bool CommandBufferManager::CreateCommandPool()
-{
-  VkCommandPoolCreateInfo info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, nullptr,
-                                  VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
-                                      VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-                                  g_vulkan_context->GetGraphicsQueueFamilyIndex()};
-
-  VkResult res =
-      vkCreateCommandPool(g_vulkan_context->GetDevice(), &info, nullptr, &m_command_pool);
-  if (res != VK_SUCCESS)
-  {
-    LOG_VULKAN_ERROR(res, "vkCreateCommandPool failed: ");
-    return false;
-  }
-
-  return true;
-}
-
-void CommandBufferManager::DestroyCommandPool()
-{
-  if (m_command_pool)
-  {
-    vkDestroyCommandPool(g_vulkan_context->GetDevice(), m_command_pool, nullptr);
-    m_command_pool = VK_NULL_HANDLE;
-  }
-}
-
 bool CommandBufferManager::CreateCommandBuffers()
 {
   VkDevice device = g_vulkan_context->GetDevice();
+  VkResult res;
 
   for (FrameResources& resources : m_frame_resources)
   {
     resources.init_command_buffer_used = false;
     resources.needs_fence_wait = false;
 
-    VkCommandBufferAllocateInfo allocate_info = {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, nullptr, m_command_pool,
+    VkCommandPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, nullptr, 0,
+                                         g_vulkan_context->GetGraphicsQueueFamilyIndex()};
+    res = vkCreateCommandPool(g_vulkan_context->GetDevice(), &pool_info, nullptr,
+                              &resources.command_pool);
+    if (res != VK_SUCCESS)
+    {
+      LOG_VULKAN_ERROR(res, "vkCreateCommandPool failed: ");
+      return false;
+    }
+
+    VkCommandBufferAllocateInfo buffer_info = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, nullptr, resources.command_pool,
         VK_COMMAND_BUFFER_LEVEL_PRIMARY, static_cast<uint32_t>(resources.command_buffers.size())};
 
-    VkResult res =
-        vkAllocateCommandBuffers(device, &allocate_info, resources.command_buffers.data());
+    res = vkAllocateCommandBuffers(device, &buffer_info, resources.command_buffers.data());
     if (res != VK_SUCCESS)
     {
       LOG_VULKAN_ERROR(res, "vkAllocateCommandBuffers failed: ");
@@ -112,7 +91,8 @@ bool CommandBufferManager::CreateCommandBuffers()
     VkDescriptorPoolSize pool_sizes[] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 500000},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 500000},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16},
-                                         {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1024}};
+                                         {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 16384},
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16384}};
 
     VkDescriptorPoolCreateInfo pool_create_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
                                                    nullptr,
@@ -157,11 +137,16 @@ void CommandBufferManager::DestroyCommandBuffers()
     }
     if (resources.command_buffers[0] != VK_NULL_HANDLE)
     {
-      vkFreeCommandBuffers(device, m_command_pool,
+      vkFreeCommandBuffers(device, resources.command_pool,
                            static_cast<u32>(resources.command_buffers.size()),
                            resources.command_buffers.data());
 
       resources.command_buffers.fill(VK_NULL_HANDLE);
+    }
+    if (resources.command_pool != VK_NULL_HANDLE)
+    {
+      vkDestroyCommandPool(device, resources.command_pool, nullptr);
+      resources.command_pool = VK_NULL_HANDLE;
     }
   }
 }
@@ -367,9 +352,14 @@ void CommandBufferManager::SubmitCommandBuffer(size_t index, VkSemaphore wait_se
                                      &present_image_index,
                                      nullptr};
 
-    res = vkQueuePresentKHR(g_vulkan_context->GetGraphicsQueue(), &present_info);
-    if (res != VK_SUCCESS && res != VK_ERROR_OUT_OF_DATE_KHR && res != VK_SUBOPTIMAL_KHR)
-      LOG_VULKAN_ERROR(res, "vkQueuePresentKHR failed: ");
+    res = vkQueuePresentKHR(g_vulkan_context->GetPresentQueue(), &present_info);
+    if (res != VK_SUCCESS)
+    {
+      // VK_ERROR_OUT_OF_DATE_KHR is not fatal, just means we need to recreate our swap chain.
+      if (res != VK_ERROR_OUT_OF_DATE_KHR && res != VK_SUBOPTIMAL_KHR)
+        LOG_VULKAN_ERROR(res, "vkQueuePresentKHR failed: ");
+      m_present_failed_flag.Set();
+    }
   }
 
   // Command buffer has been queued, so permit the next one.
@@ -412,16 +402,16 @@ void CommandBufferManager::ActivateCommandBuffer()
   if (res != VK_SUCCESS)
     LOG_VULKAN_ERROR(res, "vkResetFences failed: ");
 
-  // Reset command buffer to beginning since we can re-use the memory now
+  // Reset command pools to beginning since we can re-use the memory now
+  res = vkResetCommandPool(g_vulkan_context->GetDevice(), resources.command_pool, 0);
+  if (res != VK_SUCCESS)
+    LOG_VULKAN_ERROR(res, "vkResetCommandPool failed: ");
+
+  // Enable commands to be recorded to the two buffers again.
   VkCommandBufferBeginInfo begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr,
                                          VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr};
-  resources.init_command_buffer_used = false;
   for (VkCommandBuffer command_buffer : resources.command_buffers)
   {
-    res = vkResetCommandBuffer(command_buffer, 0);
-    if (res != VK_SUCCESS)
-      LOG_VULKAN_ERROR(res, "vkResetCommandBuffer failed: ");
-
     res = vkBeginCommandBuffer(command_buffer, &begin_info);
     if (res != VK_SUCCESS)
       LOG_VULKAN_ERROR(res, "vkBeginCommandBuffer failed: ");
@@ -431,6 +421,9 @@ void CommandBufferManager::ActivateCommandBuffer()
   res = vkResetDescriptorPool(g_vulkan_context->GetDevice(), resources.descriptor_pool, 0);
   if (res != VK_SUCCESS)
     LOG_VULKAN_ERROR(res, "vkResetDescriptorPool failed: ");
+
+  // Reset upload command buffer state
+  resources.init_command_buffer_used = false;
 }
 
 void CommandBufferManager::ExecuteCommandBuffer(bool submit_off_thread, bool wait_for_completion)

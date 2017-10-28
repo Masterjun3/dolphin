@@ -32,12 +32,12 @@ static const u8* memory_base_ptr = (u8*)&g_main_cp_state.array_strides;
 
 static OpArg MPIC(const void* ptr, X64Reg scale_reg, int scale = SCALE_1)
 {
-  return MComplex(base_reg, scale_reg, scale, (s32)((u8*)ptr - memory_base_ptr));
+  return MComplex(base_reg, scale_reg, scale, PtrOffset(ptr, memory_base_ptr));
 }
 
 static OpArg MPIC(const void* ptr)
 {
-  return MDisp(base_reg, (s32)((u8*)ptr - memory_base_ptr));
+  return MDisp(base_reg, PtrOffset(ptr, memory_base_ptr));
 }
 
 VertexLoaderX64::VertexLoaderX64(const TVtxDesc& vtx_desc, const VAT& vtx_att)
@@ -46,13 +46,12 @@ VertexLoaderX64::VertexLoaderX64(const TVtxDesc& vtx_desc, const VAT& vtx_att)
   if (!IsInitialized())
     return;
 
-  AllocCodeSpace(4096, false);
+  AllocCodeSpace(4096);
   ClearCodeSpace();
   GenerateVertexLoader();
   WriteProtect();
 
-  std::string name;
-  AppendToString(&name);
+  const std::string name = ToString();
   JitRegister::Register(region, GetCodePtr(), name.c_str());
 }
 

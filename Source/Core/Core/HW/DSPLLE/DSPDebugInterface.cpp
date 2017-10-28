@@ -4,6 +4,7 @@
 
 #include "Core/HW/DSPLLE/DSPDebugInterface.h"
 
+#include <cstddef>
 #include <string>
 
 #include "Common/MsgHandler.h"
@@ -12,15 +13,19 @@
 #include "Core/DSP/DSPMemoryMap.h"
 #include "Core/HW/DSPLLE/DSPSymbols.h"
 
+namespace DSP
+{
+namespace LLE
+{
 std::string DSPDebugInterface::Disassemble(unsigned int address)
 {
   // we'll treat addresses as line numbers.
-  return DSPSymbols::GetLineText(address);
+  return Symbols::GetLineText(address);
 }
 
 std::string DSPDebugInterface::GetRawMemoryString(int memory, unsigned int address)
 {
-  if (DSPCore_GetState() == DSPCORE_STOP)
+  if (DSPCore_GetState() == State::Stopped)
     return "";
 
   switch (memory)
@@ -63,12 +68,12 @@ unsigned int DSPDebugInterface::ReadInstruction(unsigned int address)
 
 bool DSPDebugInterface::IsAlive()
 {
-  return true;  // Core::GetState() != Core::CORE_UNINITIALIZED;
+  return true;
 }
 
 bool DSPDebugInterface::IsBreakpoint(unsigned int address)
 {
-  int real_addr = DSPSymbols::Line2Addr(address);
+  int real_addr = Symbols::Line2Addr(address);
   if (real_addr >= 0)
     return g_dsp_breakpoints.IsAddressBreakPoint(real_addr);
 
@@ -77,25 +82,21 @@ bool DSPDebugInterface::IsBreakpoint(unsigned int address)
 
 void DSPDebugInterface::SetBreakpoint(unsigned int address)
 {
-  int real_addr = DSPSymbols::Line2Addr(address);
+  int real_addr = Symbols::Line2Addr(address);
 
   if (real_addr >= 0)
   {
-    if (g_dsp_breakpoints.Add(real_addr))
-    {
-    }
+    g_dsp_breakpoints.Add(real_addr);
   }
 }
 
 void DSPDebugInterface::ClearBreakpoint(unsigned int address)
 {
-  int real_addr = DSPSymbols::Line2Addr(address);
+  int real_addr = Symbols::Line2Addr(address);
 
   if (real_addr >= 0)
   {
-    if (g_dsp_breakpoints.Remove(real_addr))
-    {
-    }
+    g_dsp_breakpoints.Remove(real_addr);
   }
 }
 
@@ -106,7 +107,7 @@ void DSPDebugInterface::ClearAllBreakpoints()
 
 void DSPDebugInterface::ToggleBreakpoint(unsigned int address)
 {
-  int real_addr = DSPSymbols::Line2Addr(address);
+  int real_addr = Symbols::Line2Addr(address);
   if (real_addr >= 0)
   {
     if (g_dsp_breakpoints.IsAddressBreakPoint(real_addr))
@@ -116,7 +117,7 @@ void DSPDebugInterface::ToggleBreakpoint(unsigned int address)
   }
 }
 
-bool DSPDebugInterface::IsMemCheck(unsigned int address)
+bool DSPDebugInterface::IsMemCheck(unsigned int address, size_t size)
 {
   return false;
 }
@@ -131,9 +132,9 @@ void DSPDebugInterface::ToggleMemCheck(unsigned int address, bool read, bool wri
   PanicAlert("MemCheck functionality not supported in DSP module.");
 }
 
-void DSPDebugInterface::InsertBLR(unsigned int address, unsigned int value)
+void DSPDebugInterface::Patch(unsigned int address, unsigned int value)
 {
-  PanicAlert("insertBLR functionality not supported in DSP module.");
+  PanicAlert("Patch functionality not supported in DSP module.");
 }
 
 // =======================================================
@@ -154,14 +155,14 @@ int DSPDebugInterface::GetColor(unsigned int address)
   int addr = -1;
   for (int i = 0; i < 1; i++)
   {
-    addr = DSPSymbols::Line2Addr(address - i);
+    addr = Symbols::Line2Addr(address - i);
     if (addr >= 0)
       break;
   }
   if (addr == -1)
     return 0xFFFFFF;
 
-  Symbol* symbol = DSPSymbols::g_dsp_symbol_db.GetSymbolFromAddr(addr);
+  Symbol* symbol = Symbols::g_dsp_symbol_db.GetSymbolFromAddr(addr);
   if (!symbol)
     return 0xFFFFFF;
   if (symbol->type != Symbol::Type::Function)
@@ -177,12 +178,12 @@ std::string DSPDebugInterface::GetDescription(unsigned int address)
 
 unsigned int DSPDebugInterface::GetPC()
 {
-  return DSPSymbols::Addr2Line(g_dsp.pc);
+  return Symbols::Addr2Line(DSP::g_dsp.pc);
 }
 
 void DSPDebugInterface::SetPC(unsigned int address)
 {
-  int new_pc = DSPSymbols::Line2Addr(address);
+  int new_pc = Symbols::Line2Addr(address);
   if (new_pc > 0)
     g_dsp.pc = new_pc;
 }
@@ -190,3 +191,5 @@ void DSPDebugInterface::SetPC(unsigned int address)
 void DSPDebugInterface::RunToBreakpoint()
 {
 }
+}  // namespace LLE
+}  // namespace DSP

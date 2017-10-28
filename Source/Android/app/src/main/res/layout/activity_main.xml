@@ -26,7 +26,6 @@
             app:tabMode="fixed"
             app:tabGravity="fill"/>
 
-
     </android.support.design.widget.AppBarLayout>
 
     <android.support.v4.view.ViewPager
@@ -39,10 +38,11 @@
         android:id="@+id/button_add_directory"
         android:layout_height="wrap_content"
         android:layout_width="wrap_content"
-        android:layout_margin="32dp"
+        android:layout_margin="16dp"
         android:src="@drawable/ic_add"
         app:borderWidth="0dp"
         app:rippleColor="?android:colorPrimaryDark"
         app:layout_anchor="@+id/pager_platforms"
         app:layout_anchorGravity="bottom|right|end"/>
+
 </android.support.design.widget.CoordinatorLayout>

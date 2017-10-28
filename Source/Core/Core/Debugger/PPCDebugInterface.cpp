@@ -4,6 +4,7 @@
 
 #include "Core/Debugger/PPCDebugInterface.h"
 
+#include <cstddef>
 #include <string>
 
 #include "Common/GekkoDisassembler.h"
@@ -11,7 +12,6 @@
 
 #include "Core/Core.h"
 #include "Core/HW/DSP.h"
-#include "Core/PowerPC/JitCommon/JitBase.h"
 #include "Core/PowerPC/PPCSymbolDB.h"
 #include "Core/PowerPC/PowerPC.h"
 
@@ -21,7 +21,7 @@ std::string PPCDebugInterface::Disassemble(unsigned int address)
   if (!IsAlive())
     return "";
 
-  if (Core::GetState() == Core::CORE_PAUSE)
+  if (Core::GetState() == Core::State::Paused)
   {
     if (!PowerPC::HostIsRAMAddress(address))
     {
@@ -129,9 +129,9 @@ void PPCDebugInterface::ClearAllMemChecks()
   PowerPC::memchecks.Clear();
 }
 
-bool PPCDebugInterface::IsMemCheck(unsigned int address)
+bool PPCDebugInterface::IsMemCheck(unsigned int address, size_t size)
 {
-  return PowerPC::memchecks.GetMemCheck(address) != nullptr;
+  return PowerPC::memchecks.GetMemCheck(address, size) != nullptr;
 }
 
 void PPCDebugInterface::ToggleMemCheck(unsigned int address, bool read, bool write, bool log)
@@ -140,13 +140,13 @@ void PPCDebugInterface::ToggleMemCheck(unsigned int address, bool read, bool wri
   {
     // Add Memory Check
     TMemCheck MemCheck;
-    MemCheck.StartAddress = address;
-    MemCheck.EndAddress = address;
-    MemCheck.OnRead = read;
-    MemCheck.OnWrite = write;
+    MemCheck.start_address = address;
+    MemCheck.end_address = address;
+    MemCheck.is_break_on_read = read;
+    MemCheck.is_break_on_write = write;
 
-    MemCheck.Log = log;
-    MemCheck.Break = true;
+    MemCheck.log_on_hit = log;
+    MemCheck.break_on_hit = true;
 
     PowerPC::memchecks.Add(MemCheck);
   }
@@ -156,7 +156,7 @@ void PPCDebugInterface::ToggleMemCheck(unsigned int address, bool read, bool wri
   }
 }
 
-void PPCDebugInterface::InsertBLR(unsigned int address, unsigned int value)
+void PPCDebugInterface::Patch(unsigned int address, unsigned int value)
 {
   PowerPC::HostWrite_U32(value, address);
   PowerPC::ScheduleInvalidateCacheThreadSafe(address);

@@ -2,6 +2,8 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "DolphinWX/Debugger/BreakpointWindow.h"
+
 #include <array>
 
 // clang-format off
@@ -12,16 +14,15 @@
 #include <wx/panel.h>
 // clang-format on
 
-#include "Common/BreakPoints.h"
 #include "Common/CommonTypes.h"
 #include "Common/FileUtil.h"
 #include "Common/IniFile.h"
 #include "Core/ConfigManager.h"
 #include "Core/HW/Memmap.h"
+#include "Core/PowerPC/BreakPoints.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "DolphinWX/Debugger/BreakpointDlg.h"
 #include "DolphinWX/Debugger/BreakpointView.h"
-#include "DolphinWX/Debugger/BreakpointWindow.h"
 #include "DolphinWX/Debugger/CodeWindow.h"
 #include "DolphinWX/Debugger/MemoryCheckDlg.h"
 #include "DolphinWX/AuiToolBar.h"
@@ -146,13 +147,19 @@ void CBreakPointWindow::OnClear(wxCommandEvent& WXUNUSED(event))
 void CBreakPointWindow::OnAddBreakPoint(wxCommandEvent& WXUNUSED(event))
 {
   BreakPointDlg bpDlg(this);
-  bpDlg.ShowModal();
+  if (bpDlg.ShowModal() == wxID_OK)
+  {
+    NotifyUpdate();
+  }
 }
 
 void CBreakPointWindow::OnAddMemoryCheck(wxCommandEvent& WXUNUSED(event))
 {
   MemoryCheckDlg memDlg(this);
-  memDlg.ShowModal();
+  if (memDlg.ShowModal() == wxID_OK)
+  {
+    NotifyUpdate();
+  }
 }
 
 void CBreakPointWindow::Event_SaveAll(wxCommandEvent& WXUNUSED(event))
@@ -164,11 +171,11 @@ void CBreakPointWindow::SaveAll()
 {
   // simply dump all to bp/mc files in a way we can read again
   IniFile ini;
-  ini.Load(File::GetUserPath(D_GAMESETTINGS_IDX) + SConfig::GetInstance().GetUniqueID() + ".ini",
+  ini.Load(File::GetUserPath(D_GAMESETTINGS_IDX) + SConfig::GetInstance().GetGameID() + ".ini",
            false);
   ini.SetLines("BreakPoints", PowerPC::breakpoints.GetStrings());
   ini.SetLines("MemoryBreakPoints", PowerPC::memchecks.GetStrings());
-  ini.Save(File::GetUserPath(D_GAMESETTINGS_IDX) + SConfig::GetInstance().GetUniqueID() + ".ini");
+  ini.Save(File::GetUserPath(D_GAMESETTINGS_IDX) + SConfig::GetInstance().GetGameID() + ".ini");
 }
 
 void CBreakPointWindow::Event_LoadAll(wxCommandEvent& WXUNUSED(event))
@@ -183,8 +190,7 @@ void CBreakPointWindow::LoadAll()
   BreakPoints::TBreakPointsStr newbps;
   MemChecks::TMemChecksStr newmcs;
 
-  if (!ini.Load(File::GetUserPath(D_GAMESETTINGS_IDX) + SConfig::GetInstance().GetUniqueID() +
-                    ".ini",
+  if (!ini.Load(File::GetUserPath(D_GAMESETTINGS_IDX) + SConfig::GetInstance().GetGameID() + ".ini",
                 false))
   {
     return;

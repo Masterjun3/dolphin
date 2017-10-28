@@ -3,13 +3,14 @@
 // Refer to the license.txt file included.
 
 #include "Core/HW/WII_IPC.h"
+
 #include "Common/ChunkFile.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/MMIO.h"
 #include "Core/HW/ProcessorInterface.h"
-#include "Core/IPC_HLE/WII_IPC_HLE.h"
+#include "Core/IOS/IOS.h"
 
 // This is the intercommunication between ARM and PPC. Currently only PPC actually uses it, because
 // of the IOS HLE
@@ -21,7 +22,7 @@
 // ppc_msg is a pointer to 0x40byte command structure
 // arm_msg is, similarly, starlet's response buffer*
 
-namespace WII_IPCInterface
+namespace IOS
 {
 enum
 {
@@ -139,7 +140,6 @@ void Reset()
 {
   INFO_LOG(WII_IPC, "Resetting ...");
   InitState();
-  WII_IPC_HLE_Interface::Reset();
 }
 
 void Shutdown()
@@ -154,8 +154,8 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                  MMIO::ComplexWrite<u32>([](u32, u32 val) {
                    ctrl.ppc(val);
                    if (ctrl.X1)
-                     WII_IPC_HLE_Interface::EnqueueRequest(ppc_msg);
-                   WII_IPC_HLE_Interface::Update();
+                     HLE::GetIOS()->EnqueueIPCRequest(ppc_msg);
+                   HLE::GetIOS()->UpdateIPC();
                    CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
                  }));
 
@@ -164,7 +164,7 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
   mmio->Register(base | PPC_IRQFLAG, MMIO::InvalidRead<u32>(),
                  MMIO::ComplexWrite<u32>([](u32, u32 val) {
                    ppc_irq_flags &= ~val;
-                   WII_IPC_HLE_Interface::Update();
+                   HLE::GetIOS()->UpdateIPC();
                    CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
                  }));
 
@@ -173,7 +173,7 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                    ppc_irq_masks = val;
                    if (ppc_irq_masks & INT_CAUSE_IPC_BROADWAY)  // wtf?
                      Reset();
-                   WII_IPC_HLE_Interface::Update();
+                   HLE::GetIOS()->UpdateIPC();
                    CoreTiming::ScheduleEvent(0, updateInterrupts, 0);
                  }));
 
@@ -229,4 +229,4 @@ bool IsReady()
 {
   return ((ctrl.Y1 == 0) && (ctrl.Y2 == 0) && ((ppc_irq_flags & INT_CAUSE_IPC_BROADWAY) == 0));
 }
-}
+}  // namespace IOS

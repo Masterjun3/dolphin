@@ -2,18 +2,25 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "Core/HW/DSPHLE/UCodes/Zelda.h"
+
 #include <array>
+#include <map>
 
 #include "Common/ChunkFile.h"
-#include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
-#include "Core/ConfigManager.h"
+#include "Common/Swap.h"
+#include "Core/HW/DSP.h"
+#include "Core/HW/DSPHLE/DSPHLE.h"
 #include "Core/HW/DSPHLE/MailHandler.h"
 #include "Core/HW/DSPHLE/UCodes/GBA.h"
 #include "Core/HW/DSPHLE/UCodes/UCodes.h"
-#include "Core/HW/DSPHLE/UCodes/Zelda.h"
 
+namespace DSP
+{
+namespace HLE
+{
 // Uncomment this to have a strict version of the HLE implementation, which
 // PanicAlerts on recoverable unknown behaviors instead of silently ignoring
 // them.  Recommended for development.
@@ -71,7 +78,7 @@ static const std::map<u32, u32> UCODE_FLAGS = {
     {0x24B22038, LIGHT_PROTOCOL | FOUR_MIXING_DESTS | TINY_VPB | VOLUME_EXPLICIT_STEP | NO_CMD_0D |
                      WEIRD_CMD_0C},
     // GameCube IPL/BIOS, PAL.
-    {0x6BA3B3EA, LIGHT_PROTOCOL | FOUR_MIXING_DESTS | NO_CMD_0D | WEIRD_CMD_0C},
+    {0x6BA3B3EA, LIGHT_PROTOCOL | FOUR_MIXING_DESTS | NO_CMD_0D},
     // Pikmin 1 GC NTSC.
     // Animal Crossing.
     {0x4BE6A5CB, LIGHT_PROTOCOL | NO_CMD_0D | SUPPORTS_GBA_CRYPTO},
@@ -119,7 +126,15 @@ ZeldaUCode::ZeldaUCode(DSPHLE* dsphle, u32 crc) : UCodeInterface(dsphle, crc)
   m_renderer.SetFlags(m_flags);
 
   INFO_LOG(DSPHLE, "Zelda UCode loaded, crc=%08x, flags=%08x", crc, m_flags);
+}
 
+ZeldaUCode::~ZeldaUCode()
+{
+  m_mail_handler.Clear();
+}
+
+void ZeldaUCode::Initialize()
+{
   if (m_flags & LIGHT_PROTOCOL)
   {
     m_mail_handler.PushMail(0x88881111);
@@ -129,11 +144,6 @@ ZeldaUCode::ZeldaUCode(DSPHLE* dsphle, u32 crc) : UCodeInterface(dsphle, crc)
     m_mail_handler.PushMail(DSP_INIT, true);
     m_mail_handler.PushMail(0xF3551111);  // handshake
   }
-}
-
-ZeldaUCode::~ZeldaUCode()
-{
-  m_mail_handler.Clear();
 }
 
 void ZeldaUCode::Update()
@@ -199,9 +209,11 @@ void ZeldaUCode::HandleMailDefault(u32 mail)
       switch (mail & 0xFFFF)
       {
       case 1:
+        m_cmd_can_execute = true;
+        RunPendingCommands();
         NOTICE_LOG(DSPHLE, "UCode being replaced.");
         m_upload_setup_in_progress = true;
-        SetMailState(MailState::HALTED);
+        SetMailState(MailState::WAITING);
         break;
 
       case 2:
@@ -366,6 +378,31 @@ void ZeldaUCode::HandleMailLight(u32 mail)
   }
 }
 
+void ZeldaUCode::SetMailState(MailState new_state)
+{
+  // WARN_LOG(DSPHLE, "MailState %d -> %d", m_mail_current_state, new_state);
+  m_mail_current_state = new_state;
+}
+
+u32 ZeldaUCode::Read32()
+{
+  if (m_read_offset == m_write_offset)
+  {
+    ERROR_LOG(DSPHLE, "Reading too many command params");
+    return 0;
+  }
+
+  u32 res = m_cmd_buffer[m_read_offset];
+  m_read_offset = (m_read_offset + 1) % (sizeof(m_cmd_buffer) / sizeof(u32));
+  return res;
+}
+
+void ZeldaUCode::Write32(u32 val)
+{
+  m_cmd_buffer[m_write_offset] = val;
+  m_write_offset = (m_write_offset + 1) % (sizeof(m_cmd_buffer) / sizeof(u32));
+}
+
 void ZeldaUCode::RunPendingCommands()
 {
   if (RenderingInProgress() || !m_cmd_can_execute)
@@ -390,8 +427,8 @@ void ZeldaUCode::RunPendingCommands()
     switch (command)
     {
     case 0x00:
-    case 0x0A:
-    case 0x0B:
+    case 0x0A:  // not a NOP in the NTSC IPL ucode but seems unused
+    case 0x0B:  // not a NOP in both IPL ucodes but seems unused
     case 0x0F:
       // NOP commands. Log anyway in case we encounter a new version
       // where these are not NOPs anymore.
@@ -446,10 +483,15 @@ void ZeldaUCode::RunPendingCommands()
         const_patterns[i] = Common::swap16(data_ptr[0x100 + i]);
       m_renderer.SetConstPatterns(std::move(const_patterns));
 
-      std::array<s16, 0x80> sine_table;
-      for (size_t i = 0; i < 0x80; ++i)
-        sine_table[i] = Common::swap16(data_ptr[0x200 + i]);
-      m_renderer.SetSineTable(std::move(sine_table));
+      // The sine table is only used for Dolby mixing
+      // which the light protocol doesn't support.
+      if ((m_flags & LIGHT_PROTOCOL) == 0)
+      {
+        std::array<s16, 0x80> sine_table;
+        for (size_t i = 0; i < 0x80; ++i)
+          sine_table[i] = Common::swap16(data_ptr[0x200 + i]);
+        m_renderer.SetSineTable(std::move(sine_table));
+      }
 
       u16* afc_coeffs_ptr = (u16*)HLEMemory_Get_Pointer(Read32());
       std::array<s16, 0x20> afc_coeffs;
@@ -495,7 +537,7 @@ void ZeldaUCode::RunPendingCommands()
       return;
 
     // Command 0C: used for multiple purpose depending on the UCode version:
-    // * IPL NTSC/PAL, Luigi's Mansion: TODO (unknown as of now).
+    // * IPL NTSC, Luigi's Mansion: TODO (unknown as of now).
     // * Pikmin/AC: GBA crypto.
     // * SMS and onwards: NOP.
     case 0x0C:
@@ -553,6 +595,7 @@ void ZeldaUCode::SendCommandAck(CommandAck ack_type, u16 sync_value)
   {
     // The light protocol uses the address of the command handler in the
     // DSP code instead of the command id... go figure.
+    // FIXME: LLE returns a different value
     sync_value = 2 * ((sync_value >> 8) & 0x7F) + 0x62;
     m_mail_handler.PushMail(0x80000000 | sync_value);
   }
@@ -806,6 +849,7 @@ struct ZeldaAudioRenderer::VPB
     // Samples stored in MRAM at an arbitrary sample rate (resampling is
     // applied, unlike PCM16_FROM_MRAM_RAW).
     SRC_PCM16_FROM_MRAM = 33,
+    // TODO: 2, 6
   };
   u16 samples_source_type;
 
@@ -1227,7 +1271,7 @@ void ZeldaAudioRenderer::AddVoice(u16 voice_id)
       // providing a target volume.
       s16 volume_delta;
       if (m_flags & VOLUME_EXPLICIT_STEP)
-        volume_delta = (vpb.channels[i].target_volume << 16);
+        volume_delta = vpb.channels[i].target_volume;
       else
         volume_delta = vpb.channels[i].target_volume - vpb.channels[i].current_volume;
 
@@ -1395,8 +1439,8 @@ void ZeldaAudioRenderer::LoadInputSamples(MixingBuffer* buffer, VPB* vpb)
     u16 pattern_offset = pattern_info.idx * PATTERN_SIZE;
     s16* pattern = m_const_patterns.data() + pattern_offset;
 
-    u32 pos = vpb->current_pos_frac << 6;  // log2(PATTERN_SIZE)
-    u32 step = vpb->resampling_ratio << 5;
+    u32 pos = vpb->current_pos_frac << 6;   // log2(PATTERN_SIZE)
+    u32 step = vpb->resampling_ratio << 5;  // FIXME: ucode 24B22038 shifts by 6 (?)
 
     for (size_t i = 0; i < buffer->size(); ++i)
     {
@@ -1804,3 +1848,5 @@ void ZeldaAudioRenderer::DoState(PointerWrap& p)
   p.Do(m_buf_front_left_reverb_last8);
   p.Do(m_buf_front_right_reverb_last8);
 }
+}  // namespace HLE
+}  // namespace DSP

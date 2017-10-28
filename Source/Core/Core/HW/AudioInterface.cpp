@@ -37,13 +37,14 @@ This file mainly deals with the [Drive I/F], however [AIDFR] controls
   TODO maybe the files should be merged?
 */
 
+#include "Core/HW/AudioInterface.h"
+
 #include <algorithm>
 
 #include "AudioCommon/AudioCommon.h"
 #include "Common/ChunkFile.h"
 #include "Common/CommonTypes.h"
 #include "Core/CoreTiming.h"
-#include "Core/HW/AudioInterface.h"
 #include "Core/HW/MMIO.h"
 #include "Core/HW/ProcessorInterface.h"
 #include "Core/HW/SystemTimers.h"
@@ -70,7 +71,8 @@ enum
 };
 
 // AI Control Register
-union AICR {
+union AICR
+{
   AICR() { hex = 0; }
   AICR(u32 _hex) { hex = _hex; }
   struct
@@ -90,7 +92,8 @@ union AICR {
 };
 
 // AI Volume Register
-union AIVR {
+union AIVR
+{
   AIVR() { hex = 0; }
   struct
   {
@@ -179,7 +182,10 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
           // AISFR rates below are intentionally inverted wrt yagcd
           DEBUG_LOG(AUDIO_INTERFACE, "Change AISFR to %s", tmpAICtrl.AISFR ? "48khz" : "32khz");
           m_Control.AISFR = tmpAICtrl.AISFR;
-          g_AISSampleRate = tmpAICtrl.AISFR ? 48000 : 32000;
+          if (SConfig::GetInstance().bWii)
+            g_AISSampleRate = tmpAICtrl.AISFR ? 48000 : 32000;
+          else
+            g_AISSampleRate = tmpAICtrl.AISFR ? 48043 : 32029;
           g_sound_stream->GetMixer()->SetStreamInputSampleRate(g_AISSampleRate);
           g_CPUCyclesPerSample = SystemTimers::GetTicksPerSecond() / g_AISSampleRate;
         }
@@ -188,7 +194,10 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
         {
           DEBUG_LOG(AUDIO_INTERFACE, "Change AIDFR to %s", tmpAICtrl.AIDFR ? "32khz" : "48khz");
           m_Control.AIDFR = tmpAICtrl.AIDFR;
-          g_AIDSampleRate = tmpAICtrl.AIDFR ? 32000 : 48000;
+          if (SConfig::GetInstance().bWii)
+            g_AIDSampleRate = tmpAICtrl.AIDFR ? 32000 : 48000;
+          else
+            g_AIDSampleRate = tmpAICtrl.AIDFR ? 32029 : 48043;
           g_sound_stream->GetMixer()->SetDMAInputSampleRate(g_AIDSampleRate);
         }
 

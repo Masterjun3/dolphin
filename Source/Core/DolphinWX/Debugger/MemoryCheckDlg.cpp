@@ -2,22 +2,23 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "DolphinWX/Debugger/MemoryCheckDlg.h"
+
 #include <string>
 #include <wx/radiobut.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
 
-#include "Common/BreakPoints.h"
 #include "Common/CommonTypes.h"
 #include "Common/StringUtil.h"
+#include "Core/PowerPC/BreakPoints.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "DolphinWX/Debugger/BreakpointWindow.h"
-#include "DolphinWX/Debugger/MemoryCheckDlg.h"
 #include "DolphinWX/WxUtils.h"
 
-MemoryCheckDlg::MemoryCheckDlg(CBreakPointWindow* parent)
-    : wxDialog(parent, wxID_ANY, _("Add a Memory Breakpoint")), m_parent(parent)
+MemoryCheckDlg::MemoryCheckDlg(wxWindow* parent)
+    : wxDialog(parent, wxID_ANY, _("Add a Memory Breakpoint"))
 {
   Bind(wxEVT_BUTTON, &MemoryCheckDlg::OnOK, this, wxID_OK);
   Bind(wxEVT_RADIOBUTTON, &MemoryCheckDlg::OnRadioButtonClick, this);
@@ -37,9 +38,18 @@ MemoryCheckDlg::MemoryCheckDlg(CBreakPointWindow* parent)
   m_radioAddress = new wxRadioButton(this, wxID_ANY, _("With an address"), wxDefaultPosition,
                                      wxDefaultSize, wxRB_GROUP);
   m_radioRange = new wxRadioButton(this, wxID_ANY, _("Within a range"));
-  m_radioRead =
-      new wxRadioButton(this, wxID_ANY, _("Read"), wxDefaultPosition, wxDefaultSize, wxRB_GROUP);
-  m_radioWrite = new wxRadioButton(this, wxID_ANY, _("Write"));
+  // i18n: This string is used for a radio button that represents the type of
+  // memory breakpoint that gets triggered when a read operation occurs.
+  // The string does not mean "read-only" in the sense that something cannot be written to.
+  m_radioRead = new wxRadioButton(this, wxID_ANY, _("Read only"), wxDefaultPosition, wxDefaultSize,
+                                  wxRB_GROUP);
+  // i18n: This string is used for a radio button that represents the type of
+  // memory breakpoint that gets triggered when a write operation occurs.
+  // The string does not mean "write-only" in the sense that something cannot be read from.
+  m_radioWrite = new wxRadioButton(this, wxID_ANY, _("Write only"));
+  // i18n: This string is used for a radio button that represents the type of
+  // memory breakpoint that gets triggered when a read operation or write operation occurs.
+  // The string is not a command to read and write something or to allow reading and writing.
   m_radioReadWrite = new wxRadioButton(this, wxID_ANY, _("Read and write"));
   m_radioLog =
       new wxRadioButton(this, wxID_ANY, _("Log"), wxDefaultPosition, wxDefaultSize, wxRB_GROUP);
@@ -144,7 +154,7 @@ void MemoryCheckDlg::OnOK(wxCommandEvent& event)
   bool Log = m_radioLog->GetValue() || m_radioBreakLog->GetValue();
   bool Break = m_radioBreak->GetValue() || m_radioBreakLog->GetValue();
 
-  u32 StartAddress, EndAddress;
+  u32 StartAddress = UINT32_MAX, EndAddress = 0;
   bool EndAddressOK =
       EndAddressString.Len() && AsciiToHex(WxStrToStr(EndAddressString), EndAddress);
 
@@ -156,17 +166,16 @@ void MemoryCheckDlg::OnOK(wxCommandEvent& event)
     if (!EndAddressOK)
       EndAddress = StartAddress;
 
-    MemCheck.StartAddress = StartAddress;
-    MemCheck.EndAddress = EndAddress;
-    MemCheck.bRange = StartAddress != EndAddress;
-    MemCheck.OnRead = OnRead;
-    MemCheck.OnWrite = OnWrite;
-    MemCheck.Log = Log;
-    MemCheck.Break = Break;
+    MemCheck.start_address = StartAddress;
+    MemCheck.end_address = EndAddress;
+    MemCheck.is_ranged = StartAddress != EndAddress;
+    MemCheck.is_break_on_read = OnRead;
+    MemCheck.is_break_on_write = OnWrite;
+    MemCheck.log_on_hit = Log;
+    MemCheck.break_on_hit = Break;
 
     PowerPC::memchecks.Add(MemCheck);
-    m_parent->NotifyUpdate();
-    Close();
+    EndModal(wxID_OK);
   }
 
   event.Skip();

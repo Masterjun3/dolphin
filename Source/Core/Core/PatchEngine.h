@@ -45,6 +45,7 @@ void LoadPatchSection(const std::string& section, std::vector<Patch>& patches, I
 void LoadPatches();
 bool ApplyFramePatches();
 void Shutdown();
+void Reload();
 
 inline int GetPatchTypeCharLength(PatchType type)
 {
@@ -66,5 +67,4 @@ inline int GetPatchTypeCharLength(PatchType type)
   return size;
 }
 
-}  // namespace
-extern std::vector<PatchEngine::Patch> onFrame;
+}  // namespace PatchEngine

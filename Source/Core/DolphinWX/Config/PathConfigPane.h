@@ -20,15 +20,15 @@ public:
 private:
   void InitializeGUI();
   void LoadGUIValues();
-  void RefreshGUI();
+  void BindEvents();
+
+  void OnEnableIfCoreNotRunning(wxUpdateUIEvent& event);
 
   void OnISOPathSelectionChanged(wxCommandEvent&);
   void OnRecursiveISOCheckBoxChanged(wxCommandEvent&);
   void OnAddISOPath(wxCommandEvent&);
   void OnRemoveISOPath(wxCommandEvent&);
   void OnDefaultISOChanged(wxCommandEvent&);
-  void OnDVDRootChanged(wxCommandEvent&);
-  void OnApploaderPathChanged(wxCommandEvent&);
   void OnNANDRootChanged(wxCommandEvent&);
   void OnDumpPathChanged(wxCommandEvent&);
   void OnSdCardPathChanged(wxCommandEvent&);
@@ -40,10 +40,8 @@ private:
   wxButton* m_add_iso_path_button;
   wxButton* m_remove_iso_path_button;
 
-  wxDirPickerCtrl* m_dvd_root_dirpicker;
   wxDirPickerCtrl* m_nand_root_dirpicker;
   wxFilePickerCtrl* m_default_iso_filepicker;
-  wxFilePickerCtrl* m_apploader_path_filepicker;
   wxDirPickerCtrl* m_dump_path_dirpicker;
   wxFilePickerCtrl* m_wii_sdcard_filepicker;
 };

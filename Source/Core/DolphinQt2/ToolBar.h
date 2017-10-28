@@ -8,17 +8,17 @@
 #include <QLineEdit>
 #include <QToolBar>
 
+namespace Core
+{
+enum class State;
+}
+
 class ToolBar final : public QToolBar
 {
   Q_OBJECT
 
 public:
   explicit ToolBar(QWidget* parent = nullptr);
-
-public slots:
-  void EmulationStarted();
-  void EmulationPaused();
-  void EmulationStopped();
 
 signals:
   void OpenPressed();
@@ -28,10 +28,13 @@ signals:
   void FullScreenPressed();
   void ScreenShotPressed();
 
-  void PathsPressed();
   void SettingsPressed();
+  void ControllersPressed();
+  void GraphicsPressed();
 
 private:
+  void OnEmulationStateChanged(Core::State state);
+
   void MakeActions();
   void UpdateIcons();
 
@@ -41,7 +44,7 @@ private:
   QAction* m_stop_action;
   QAction* m_fullscreen_action;
   QAction* m_screenshot_action;
-  QAction* m_paths_action;
   QAction* m_config_action;
   QAction* m_controllers_action;
+  QAction* m_graphics_action;
 };
