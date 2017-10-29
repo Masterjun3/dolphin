@@ -6,7 +6,7 @@ class MovieEditor : public wxDialog
 {
 public:
 	MovieEditor(wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Movie Editor"),
-		const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize(800,800),
+		const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize(520,580),
 		long style = wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
 
 	~MovieEditor();

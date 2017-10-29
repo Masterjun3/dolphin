@@ -287,7 +287,7 @@ void SetReadOnly(bool bEnabled)
 void SetReadOnly(bool bEnabled, int controller)
 {
 	if (IsReadOnly(controller) != bEnabled) {
-		Core::DisplayMessage(bEnabled ? StringFromFormat("P%d Read-only mode.", controller) : StringFromFormat("P%d Read+Write mode.", controller), 1000);
+		Core::DisplayMessage(bEnabled ? StringFromFormat("P%d Read-only mode.", controller+1) : StringFromFormat("P%d Read+Write mode.", controller+1), 1000);
 	}
 	if (bEnabled) {
 		s_readOnly |= (1 << controller);
@@ -1424,7 +1424,7 @@ void SetWiiInputManip(WiiManipFunction func)
 }
 void SetMovieEditor(MovieEditorFunction func)
 {
-	s_moved_manip_func = func;
+	s_moved_manip_func = std::move(func);
 }
 
 void UpdateMovieEditor(int mode)

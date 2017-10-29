@@ -37,10 +37,11 @@ MovieEditor::MovieEditor(wxWindow* parent, wxWindowID id, const wxString& title,
 
 	label = new wxStaticText(this, 300, _("0 | 128 128 128 128 000 000 A B X Y Z L R S < ^ > v"), wxPoint(0,0), linesize);
 	//scrollbar = new wxScrollBar(this, 301, wxDefaultPosition, wxDefaultSize, wxSB_VERTICAL);
-	updateScrollbar();
+	//updateScrollbar();
 
 	//label->Bind(wxEVT_LEFT_DOWN, &MovieEditor::OnEvent_Click, this);
 	Bind(wxEVT_LEFT_DOWN, &MovieEditor::OnEvent_Click, this);
+  Bind(wxEVT_LEFT_DCLICK, &MovieEditor::OnEvent_Click, this);
 	Bind(wxEVT_CLOSE_WINDOW, &MovieEditor::OnEvent_Close, this);
 	Bind(wxEVT_IDLE, &MovieEditor::repaint, this);
 	Bind(wxEVT_SIZE, &MovieEditor::resized, this);
@@ -59,21 +60,23 @@ MovieEditor::MovieEditor(wxWindow* parent, wxWindowID id, const wxString& title,
 MovieEditor::~MovieEditor()
 {
 	main_frame->g_MovieEditor = nullptr;
+  Movie::SetMovieEditor(nullptr);
 	//Show(false);
 }
 
 void MovieEditor::paint(wxPaintEvent& event) {
-	wxPaintDC dc(this);
+	//wxPaintDC dc(this);
+  wxBufferedPaintDC dc(this);
 	dc.Clear();
 	//dc.SetBackgroundMode(wxPENSTYLE_SOLID);
 	wxColor cBlack(*wxBLACK);
-	wxColor cLightBlue(0xC0C0FF);
+	wxColor cLightRed(0xC0C0FF);
 	wxColor cGrey(0xC0C0C0/*C0MBO BREAKER*/);
 	/*good joke*/
 		
 	wxColor cText = cBlack;
 
-	dc.SetTextBackground(cLightBlue);
+	dc.SetTextBackground(cLightRed);
 	dc.SetBackgroundMode(wxPENSTYLE_TRANSPARENT);
 
 	dc.DrawText(labeltext, 0, 0);
@@ -110,6 +113,7 @@ void MovieEditor::paint(wxPaintEvent& event) {
 		}
 	}
 	//updateScrollbar();
+  event.Skip();
 }
 
 void MovieEditor::resized(wxSizeEvent& event)
@@ -121,7 +125,7 @@ void MovieEditor::updateScrollbar() {
 	SetScrollbar(wxSB_VERTICAL, scroll, linecount, maxlines);
 }
 
-void MovieEditor::repaint(wxIdleEvent&)
+void MovieEditor::repaint(wxIdleEvent& event)
 {
 	if (changed)
 	{
@@ -131,6 +135,7 @@ void MovieEditor::repaint(wxIdleEvent&)
 		}*/
 		changed = false;
 	}
+  event.Skip();
 }
 
 void MovieEditor::update(int mode)
