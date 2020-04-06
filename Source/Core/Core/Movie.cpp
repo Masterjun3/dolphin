@@ -111,7 +111,9 @@ static std::mutex s_input_display_lock;
 static std::string s_InputDisplay[8];
 
 static GCManipFunction s_gc_manip_func;
+static GCManipFunction s_gc_manip_lua_func;
 static WiiManipFunction s_wii_manip_func;
+static WiiManipFunction s_wii_manip_lua_func;
 
 static std::string s_current_file_name;
 
@@ -1344,9 +1346,17 @@ void SetGCInputManip(GCManipFunction func)
 {
   s_gc_manip_func = std::move(func);
 }
+void SetGCInputManipLua(GCManipFunction func)
+{
+  s_gc_manip_lua_func = std::move(func);
+}
 void SetWiiInputManip(WiiManipFunction func)
 {
   s_wii_manip_func = std::move(func);
+}
+void SetWiiInputManipLua(WiiManipFunction func)
+{
+  s_wii_manip_lua_func = std::move(func);
 }
 
 // NOTE: CPU Thread
@@ -1354,12 +1364,17 @@ void CallGCInputManip(GCPadStatus* PadStatus, int controllerID)
 {
   if (s_gc_manip_func)
     s_gc_manip_func(PadStatus, controllerID);
+  if (s_gc_manip_lua_func)
+    s_gc_manip_lua_func(PadStatus, controllerID);
+
 }
 // NOTE: CPU Thread
 void CallWiiInputManip(DataReportBuilder& rpt, int controllerID, int ext, const EncryptionKey& key)
 {
   if (s_wii_manip_func)
     s_wii_manip_func(rpt, controllerID, ext, key);
+  if (s_wii_manip_lua_func)
+    s_wii_manip_lua_func(rpt, controllerID, ext, key);
 }
 
 // NOTE: GPU Thread

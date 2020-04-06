@@ -188,7 +188,9 @@ using WiiManipFunction = std::function<void(WiimoteCommon::DataReportBuilder&, i
                                             const WiimoteEmu::EncryptionKey&)>;
 
 void SetGCInputManip(GCManipFunction);
+void SetGCInputManipLua(GCManipFunction);
 void SetWiiInputManip(WiiManipFunction);
+void SetWiiInputManipLua(WiiManipFunction);
 void CallGCInputManip(GCPadStatus* PadStatus, int controllerID);
 void CallWiiInputManip(WiimoteCommon::DataReportBuilder& rpt, int controllerID, int ext,
                        const WiimoteEmu::EncryptionKey& key);

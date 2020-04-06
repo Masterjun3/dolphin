@@ -28,6 +28,10 @@ void SetIsThrottlerTempDisabled(bool disable);
 void Callback_VideoCopiedToXFB(bool video_update);
 void FrameUpdate();
 
+void SetLuaCbBoot(std::function<void()> func);
+void SetLuaCbStop(std::function<void()> func);
+void SetLuaCbPaint(std::function<void()> func);
+
 enum class State
 {
   Uninitialized,

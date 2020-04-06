@@ -107,6 +107,7 @@ signals:
   void StopRecording();
   void ExportRecording();
   void ShowTASInput();
+  void ShowLuaWindow();
 
   void SelectionChanged(std::shared_ptr<const UICommon::GameFile> game_file);
   void RecordingStatusChanged(bool recording);

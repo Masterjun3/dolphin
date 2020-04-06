@@ -603,9 +603,16 @@ void CheckBreakPoints()
 {
   if (PowerPC::breakpoints.IsAddressBreakPoint(PC))
   {
-    CPU::Break();
-    if (PowerPC::breakpoints.IsTempBreakPoint(PC))
-      PowerPC::breakpoints.Remove(PC);
+    if (PowerPC::breakpoints.IsLuaBreakPoint(PC))
+    {
+      PowerPC::breakpoints.RunLuaCbBreakpoint(PC);
+    }
+    else
+    {
+      CPU::Break();
+      if (PowerPC::breakpoints.IsTempBreakPoint(PC))
+        PowerPC::breakpoints.Remove(PC);
+    }
   }
 }
 

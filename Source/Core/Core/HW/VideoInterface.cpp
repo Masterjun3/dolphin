@@ -819,8 +819,8 @@ void Update(u64 ticks)
   // If this half-line is at a field boundary, potentially deal with frame-stepping
   // and/or update movie state before dealing with anything else
 
-  if (s_half_line_count == 0 || s_half_line_count == GetHalfLinesPerEvenField())
-    Core::FrameUpdate();
+  //if (s_half_line_count == 0 || s_half_line_count == GetHalfLinesPerEvenField())
+    //Core::FrameUpdate();
 
   // If an SI poll is scheduled to happen on this half-line, do it!
 
@@ -849,10 +849,12 @@ void Update(u64 ticks)
 
   if (s_half_line_count == s_even_field_first_hl)
   {
+    Core::FrameUpdate();
     BeginField(FieldType::Even, ticks);
   }
   else if (s_half_line_count == s_odd_field_first_hl)
   {
+    Core::FrameUpdate();
     BeginField(FieldType::Odd, ticks);
   }
   else if (s_half_line_count == s_even_field_last_hl)

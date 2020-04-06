@@ -97,6 +97,7 @@
 #include "DolphinQt/Settings.h"
 #include "DolphinQt/TAS/GCTASInputWindow.h"
 #include "DolphinQt/TAS/WiiTASInputWindow.h"
+#include "DolphinQt/TAS/Scripting/LuaWindow.h"
 #include "DolphinQt/ToolBar.h"
 #include "DolphinQt/WiiUpdate.h"
 
@@ -275,6 +276,8 @@ MainWindow::~MainWindow()
     delete m_wii_tas_input_windows[i];
   }
 
+  delete m_lua_window;
+
   ShutdownControllers();
 
   QSettings& settings = Settings::GetQSettings();
@@ -383,6 +386,8 @@ void MainWindow::CreateComponents()
     m_wii_tas_input_windows[controller_id]->GetValues(rpt, ext, key);
   });
 
+  m_lua_window = new LuaWindow(this);
+
   m_jit_widget = new JITWidget(this);
   m_log_widget = new LogWidget(this);
   m_log_config_widget = new LogConfigWidget(this);
@@ -480,6 +485,7 @@ void MainWindow::ConnectMenuBar()
   connect(m_menu_bar, &MenuBar::StopRecording, this, &MainWindow::OnStopRecording);
   connect(m_menu_bar, &MenuBar::ExportRecording, this, &MainWindow::OnExportRecording);
   connect(m_menu_bar, &MenuBar::ShowTASInput, this, &MainWindow::ShowTASInput);
+  connect(m_menu_bar, &MenuBar::ShowLuaWindow, this, &MainWindow::ShowLuaWindow);
 
   // View
   connect(m_menu_bar, &MenuBar::ShowList, m_game_list, &GameList::SetListView);
@@ -1670,6 +1676,13 @@ void MainWindow::ShowTASInput()
       m_wii_tas_input_windows[i]->activateWindow();
     }
   }
+}
+
+void MainWindow::ShowLuaWindow()
+{
+  m_lua_window->show();
+  m_lua_window->raise();
+  m_lua_window->activateWindow();
 }
 
 void MainWindow::OnConnectWiiRemote(int id)

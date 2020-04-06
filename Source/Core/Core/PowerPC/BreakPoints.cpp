@@ -29,6 +29,12 @@ bool BreakPoints::IsTempBreakPoint(u32 address) const
     return bp.address == address && bp.is_temporary;
   });
 }
+bool BreakPoints::IsLuaBreakPoint(u32 address) const
+{
+  return std::any_of(m_breakpoints.begin(), m_breakpoints.end(), [address](const auto& bp) {
+    return bp.address == address && bp.is_lua_callback;
+  });
+}
 
 BreakPoints::TBreakPointsStr BreakPoints::GetStrings() const
 {
@@ -84,6 +90,36 @@ void BreakPoints::Add(u32 address, bool temp)
   m_breakpoints.push_back(bp);
 
   JitInterface::InvalidateICache(address, 4, true);
+}
+
+void BreakPoints::AddLua(u32 address)
+{
+  // Only add new addresses
+  if (IsAddressBreakPoint(address))
+    return;
+
+  TBreakPoint bp;  // breakpoint settings
+  bp.is_enabled = true;
+  bp.is_temporary = false;
+  bp.address = address;
+  bp.is_lua_callback = true;
+
+  m_breakpoints.push_back(bp);
+
+  JitInterface::InvalidateICache(address, 4, true);
+}
+
+void BreakPoints::SetLuaCbBreakpoint(std::function<void(u32)> func)
+{
+  s_lua_cb_breakpoint = std::move(func);
+}
+
+void BreakPoints::RunLuaCbBreakpoint(u32 address)
+{
+  if (s_lua_cb_breakpoint)
+  {
+    s_lua_cb_breakpoint(address);
+  }
 }
 
 void BreakPoints::Remove(u32 address)

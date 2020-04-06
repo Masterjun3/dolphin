@@ -42,6 +42,7 @@ class SettingsWindow;
 class ToolBar;
 class WatchWidget;
 class WiiTASInputWindow;
+class LuaWindow;
 
 namespace DiscIO
 {
@@ -176,6 +177,7 @@ private:
   void OnActivateChat();
   void OnRequestGolfControl();
   void ShowTASInput();
+  void ShowLuaWindow();
 
   void ChangeDisc();
   void EjectDisc();
@@ -222,6 +224,7 @@ private:
   std::array<GCTASInputWindow*, num_gc_controllers> m_gc_tas_input_windows{};
   static constexpr int num_wii_controllers = 4;
   std::array<WiiTASInputWindow*, num_wii_controllers> m_wii_tas_input_windows{};
+  LuaWindow* m_lua_window;
 
   BreakpointWidget* m_breakpoint_widget;
   CodeWidget* m_code_widget;

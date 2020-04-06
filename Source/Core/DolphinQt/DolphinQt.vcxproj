@@ -382,6 +382,172 @@
     <ClCompile Include="QtUtils\WinIconHelper.cpp" />
     <ClCompile Include="ResourcePackManager.cpp" />
     <ClCompile Include="TAS\GCTASInputWindow.cpp" />
+    <ClCompile Include="TAS\Scripting\LuaWindow.cpp" />
+    <ClCompile Include="TAS\Scripting\Lua\lapi.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lauxlib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lbaselib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lbitlib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lcode.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lcorolib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lctype.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\ldblib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\ldebug.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\ldo.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\ldump.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lfunc.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lgc.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\linit.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\liolib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\llex.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lmathlib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lmem.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\loadlib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lobject.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lopcodes.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\loslib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lparser.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lstate.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lstring.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lstrlib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\ltable.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\ltablib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\ltm.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lundump.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lutf8lib.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lvm.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
+    <ClCompile Include="TAS\Scripting\Lua\lzio.c">
+      <ForcedIncludeFiles />
+      <PrecompiledHeader />
+      <TreatWarningAsError />
+    </ClCompile>
     <ClCompile Include="TAS\WiiTASInputWindow.cpp" />
     <ClCompile Include="TAS\TASCheckBox.cpp" />
     <ClCompile Include="TAS\TASInputWindow.cpp" />
@@ -449,6 +615,33 @@
     <ClInclude Include="QtUtils\WinIconHelper.h" />
     <ClInclude Include="ResourcePackManager.h" />
     <ClInclude Include="Resources.h" />
+    <ClInclude Include="TAS\Scripting\LuaWindow.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lapi.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lauxlib.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lcode.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lctype.h" />
+    <ClInclude Include="TAS\Scripting\Lua\ldebug.h" />
+    <ClInclude Include="TAS\Scripting\Lua\ldo.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lfunc.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lgc.h" />
+    <ClInclude Include="TAS\Scripting\Lua\llex.h" />
+    <ClInclude Include="TAS\Scripting\Lua\llimits.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lmem.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lobject.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lopcodes.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lparser.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lprefix.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lstate.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lstring.h" />
+    <ClInclude Include="TAS\Scripting\Lua\ltable.h" />
+    <ClInclude Include="TAS\Scripting\Lua\ltm.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lua.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lua.hpp" />
+    <ClInclude Include="TAS\Scripting\Lua\luaconf.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lualib.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lundump.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lvm.h" />
+    <ClInclude Include="TAS\Scripting\Lua\lzio.h" />
     <ClInclude Include="Translation.h" />
     <ClInclude Include="WiiUpdate.h" />
   </ItemGroup>

@@ -105,6 +105,10 @@ static bool s_request_refresh_info = false;
 static bool s_is_throttler_temp_disabled = false;
 static bool s_frame_step = false;
 
+static std::function<void()> s_lua_cb_boot;
+static std::function<void()> s_lua_cb_stop;
+static std::function<void()> s_lua_cb_paint;
+
 #ifdef USE_MEMORYWATCHER
 static std::unique_ptr<MemoryWatcher> s_memory_watcher;
 #endif
@@ -341,6 +345,10 @@ static void CpuThread(const std::optional<std::string>& savestate_path, bool del
   }
 
   s_is_started = true;
+  if (s_lua_cb_boot)
+  {
+    s_lua_cb_boot();
+  }
   CPUSetInitialExecutionState();
 
 #ifdef USE_GDBSTUB
@@ -367,6 +375,10 @@ static void CpuThread(const std::optional<std::string>& savestate_path, bool del
   s_memory_watcher.reset();
 #endif
 
+  if (s_lua_cb_stop)
+  {
+    s_lua_cb_stop();
+  }
   s_is_started = false;
 
   if (_CoreParameter.bFastmem)
@@ -389,10 +401,18 @@ static void FifoPlayerThread(const std::optional<std::string>& savestate_path,
   {
     PowerPC::InjectExternalCPUCore(cpu_core.get());
     s_is_started = true;
+    if (s_lua_cb_boot)
+    {
+      s_lua_cb_boot();
+    }
 
     CPUSetInitialExecutionState();
     CPU::Run();
 
+    if (s_lua_cb_stop)
+    {
+      s_lua_cb_stop();
+    }
     s_is_started = false;
     PowerPC::InjectExternalCPUCore(nullptr);
     FifoPlayer::GetInstance().Close();
@@ -870,6 +890,23 @@ void FrameUpdate()
     if (s_on_state_changed_callback)
       s_on_state_changed_callback(Core::GetState());
   }
+  if (s_lua_cb_paint)
+  {
+    s_lua_cb_paint();
+  }
+}
+
+void SetLuaCbBoot(std::function<void()> func)
+{
+  s_lua_cb_boot = std::move(func);
+}
+void SetLuaCbStop(std::function<void()> func)
+{
+  s_lua_cb_stop = std::move(func);
+}
+void SetLuaCbPaint(std::function<void()> func)
+{
+  s_lua_cb_paint = std::move(func);
 }
 
 void UpdateTitle()

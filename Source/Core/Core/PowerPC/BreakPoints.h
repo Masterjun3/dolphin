@@ -20,6 +20,7 @@ struct TBreakPoint
   u32 address = 0;
   bool is_enabled = false;
   bool is_temporary = false;
+  bool is_lua_callback = false;
 };
 
 struct TMemCheck
@@ -56,9 +57,13 @@ public:
   // is address breakpoint
   bool IsAddressBreakPoint(u32 address) const;
   bool IsTempBreakPoint(u32 address) const;
+  bool IsLuaBreakPoint(u32 address) const;
 
   // Add BreakPoint
   void Add(u32 address, bool temp = false);
+  void AddLua(u32 address);
+  void SetLuaCbBreakpoint(std::function<void(u32)> func);
+  void RunLuaCbBreakpoint(u32 address);
   void Add(const TBreakPoint& bp);
 
   // Remove Breakpoint
@@ -68,6 +73,7 @@ public:
 
 private:
   TBreakPoints m_breakpoints;
+  std::function<void(u32)> s_lua_cb_breakpoint = nullptr;
 };
 
 // Memory breakpoints
