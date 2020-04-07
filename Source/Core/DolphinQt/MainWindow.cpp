@@ -386,7 +386,7 @@ void MainWindow::CreateComponents()
     m_wii_tas_input_windows[controller_id]->GetValues(rpt, ext, key);
   });
 
-  m_lua_window = new LuaWindow(this);
+  m_lua_window = new LuaWindow(nullptr);
 
   m_jit_widget = new JITWidget(this);
   m_log_widget = new LogWidget(this);

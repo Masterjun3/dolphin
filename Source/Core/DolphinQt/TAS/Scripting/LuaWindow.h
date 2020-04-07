@@ -41,6 +41,7 @@ public:
   static int memory_getregistertable(lua_State* L);
   static int memory_setregister(lua_State* L);
   static int gui_text(lua_State* L);
+  static int gui_texthalo(lua_State* L);
   static int gui_getdrawsize(lua_State* L);
   static int input_getgc(lua_State* L);
   static int input_getwii(lua_State* L);
@@ -64,6 +65,8 @@ private:
   void run();
 
   void startScript();
+
+  int imgui_lastframecount;
 
   void cb_paint();
   void cb_breakpoint(u32 addr);

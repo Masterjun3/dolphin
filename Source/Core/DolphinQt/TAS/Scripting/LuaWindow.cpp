@@ -39,6 +39,7 @@ LuaWindow::LuaWindow(QWidget* parent) : QDialog(parent), m_timer(new QTimer(this
 
   L = nullptr;
   running = false;
+  imgui_lastframecount = -1;
 
   main_layout = new QVBoxLayout();
   button_layout = new QHBoxLayout();
@@ -424,6 +425,47 @@ int LuaWindow::gui_text(lua_State* L)
   draw_list->AddText(ImVec2(draw_rect.left + pos_x, draw_rect.top + pos_y), LUA_COLOR(color), text);
   return 0;
 }
+int LuaWindow::gui_texthalo(lua_State* L)
+{
+  int n = lua_gettop(L);
+  LUA_ATLEAST_ARGS(3)
+  LUA_BE_NUMBER(1)
+  LUA_BE_NUMBER(2)
+  LUA_BE_STRING(3)
+  lua_Number pos_x = lua_tonumber(L, 1);
+  lua_Number pos_y = lua_tonumber(L, 2);
+  const char* text = lua_tostring(L, 3);
+  lua_Integer color = 0xFFFFFF;
+  lua_Integer halocolor = 0x000000;
+  if (n > 3)
+  {
+    LUA_BE_INTEGER(4)
+    color = lua_tointeger(L, 4);
+    if (n > 4)
+    {
+      LUA_BE_INTEGER(5)
+      halocolor = lua_tointeger(L, 5);
+    }
+  }
+  draw_list->AddText(ImVec2(draw_rect.left + pos_x - 1, draw_rect.top + pos_y - 1),
+                     LUA_COLOR(halocolor), text);
+  draw_list->AddText(ImVec2(draw_rect.left + pos_x, draw_rect.top + pos_y - 1),
+                     LUA_COLOR(halocolor), text);
+  draw_list->AddText(ImVec2(draw_rect.left + pos_x + 1, draw_rect.top + pos_y - 1),
+                     LUA_COLOR(halocolor), text);
+  draw_list->AddText(ImVec2(draw_rect.left + pos_x - 1, draw_rect.top + pos_y),
+                     LUA_COLOR(halocolor), text);
+  draw_list->AddText(ImVec2(draw_rect.left + pos_x + 1, draw_rect.top + pos_y),
+                     LUA_COLOR(halocolor), text);
+  draw_list->AddText(ImVec2(draw_rect.left + pos_x - 1, draw_rect.top + pos_y + 1),
+                     LUA_COLOR(halocolor), text);
+  draw_list->AddText(ImVec2(draw_rect.left + pos_x, draw_rect.top + pos_y + 1),
+                     LUA_COLOR(halocolor), text);
+  draw_list->AddText(ImVec2(draw_rect.left + pos_x + 1, draw_rect.top + pos_y + 1),
+                     LUA_COLOR(halocolor), text);
+  draw_list->AddText(ImVec2(draw_rect.left + pos_x, draw_rect.top + pos_y), LUA_COLOR(color), text);
+  return 0;
+}
 
 int LuaWindow::gui_getdrawsize(lua_State* L)
 {
@@ -494,8 +536,10 @@ static const luaL_Reg memory_funcs[] = {{"readu8", LuaWindow::memory_readu8},
                                         {"getregistertable", LuaWindow::memory_getregistertable},
                                         {"setregister", LuaWindow::memory_setregister},
                                         {NULL, NULL}};
-static const luaL_Reg gui_funcs[] = {
-    {"text", LuaWindow::gui_text}, {"getdrawsize", LuaWindow::gui_getdrawsize}, {NULL, NULL}};
+static const luaL_Reg gui_funcs[] = {{"text", LuaWindow::gui_text},
+                                     {"texthalo", LuaWindow::gui_texthalo},
+                                     {"getdrawsize", LuaWindow::gui_getdrawsize},
+                                     {NULL, NULL}};
 static const luaL_Reg input_funcs[] = {
     {"getgc", LuaWindow::input_getgc}, {"getwii", LuaWindow::input_getwii}, {NULL, NULL}};
 
@@ -515,15 +559,11 @@ void LuaWindow::editLibs()
 // ################################################################
 // ################################################################
 
-void LuaWindow::browse()  // this can be simpler now
+void LuaWindow::browse()
 {
   QString fileName = QFileDialog::getOpenFileName(this, str("Open Lua File"), str("."),
                                                   str("Lua files (*.lua);;All files (*)"));
-  if (fileName.isEmpty())
-  {
-    return;
-  }
-  else
+  if (!fileName.isEmpty())
   {
     file_path->setText(fileName);
   }
@@ -575,6 +615,7 @@ void LuaWindow::run()
   {
     running = true;
     L = luaL_newstate();
+    imgui_lastframecount = -1;
 
     Core::SetLuaCbBoot([this]() { cb_boot(); });
     Core::SetLuaCbStop([this]() { cb_stop(); });
@@ -647,15 +688,26 @@ void LuaWindow::cb_paint()
     draw_rect.right -= 4;
     draw_rect.top -= 1;
     draw_rect.bottom -= 1;
-    auto lock = g_renderer->GetImGuiLock();
-    ImGui::SetNextWindowPos(ImVec2(draw_rect.left, draw_rect.top));
-    ImGui::SetNextWindowSize(ImVec2(draw_rect.GetWidth(), draw_rect.GetHeight()));
-    ImGui::Begin("LuaPaint", 0,
-                 ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs);
-    draw_list = ImGui::GetWindowDrawList();
-    call();
-    ImGui::End();
+    if (imgui_lastframecount == ImGui::GetFrameCount())
+    {
+      // window wasn't swapped, so discard drawings from last frame
+      // if we don't discard them they can pile up and ImGui can give an error
+      // we also can't draw them ourselves because we're already a frame late
+      ImGui::EndFrame();
+      g_renderer->BeginImGuiFrame();
+    }
+    imgui_lastframecount = ImGui::GetFrameCount();
+    {
+      auto lock = g_renderer->GetImGuiLock();
+      ImGui::SetNextWindowPos(ImVec2(draw_rect.left, draw_rect.top));
+      ImGui::SetNextWindowSize(ImVec2(draw_rect.GetWidth(), draw_rect.GetHeight()));
+      ImGui::Begin("LuaPaint", 0,
+                   ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration |
+                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs);
+      draw_list = ImGui::GetWindowDrawList();
+      call();
+      ImGui::End();
+    }
   }
 }
 
@@ -734,7 +786,7 @@ void LuaWindow::cb_gcinput(GCPadStatus* pad, int cID)
       lua_pushinteger(L, cID);
       if (call(1, 1))
       {
-        if (lua_istable(L, -1))
+        if (lua_istable(L, -1) && !Movie::IsPlayingInput())
         {
           checksetbutton<u16>(L, "Left", pad->button, PAD_BUTTON_LEFT, false, false);
           checksetbutton<u16>(L, "Right", pad->button, PAD_BUTTON_RIGHT, false, false);

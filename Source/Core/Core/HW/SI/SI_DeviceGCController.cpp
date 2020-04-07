@@ -124,15 +124,18 @@ void CSIDevice_GCController::HandleMoviePadStatus(GCPadStatus* pad_status)
   else if (Movie::IsPlayingInput())
   {
     Movie::PlayController(pad_status, m_device_number);
+    Movie::CallGCInputManipLua(pad_status, m_device_number);
     Movie::InputUpdate();
   }
   else if (Movie::IsRecordingInput())
   {
+    Movie::CallGCInputManipLua(pad_status, m_device_number);
     Movie::RecordInput(pad_status, m_device_number);
     Movie::InputUpdate();
   }
   else
   {
+    Movie::CallGCInputManipLua(pad_status, m_device_number);
     Movie::CheckPadStatus(pad_status, m_device_number);
   }
 }

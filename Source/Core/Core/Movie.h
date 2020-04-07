@@ -192,6 +192,9 @@ void SetGCInputManipLua(GCManipFunction);
 void SetWiiInputManip(WiiManipFunction);
 void SetWiiInputManipLua(WiiManipFunction);
 void CallGCInputManip(GCPadStatus* PadStatus, int controllerID);
+void CallGCInputManipLua(GCPadStatus* PadStatus, int controllerID);
 void CallWiiInputManip(WiimoteCommon::DataReportBuilder& rpt, int controllerID, int ext,
+                       const WiimoteEmu::EncryptionKey& key);
+void CallWiiInputManipLua(WiimoteCommon::DataReportBuilder& rpt, int controllerID, int ext,
                        const WiimoteEmu::EncryptionKey& key);
 }  // namespace Movie

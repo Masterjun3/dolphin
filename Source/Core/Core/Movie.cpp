@@ -1364,6 +1364,10 @@ void CallGCInputManip(GCPadStatus* PadStatus, int controllerID)
 {
   if (s_gc_manip_func)
     s_gc_manip_func(PadStatus, controllerID);
+
+}
+void CallGCInputManipLua(GCPadStatus* PadStatus, int controllerID)
+{
   if (s_gc_manip_lua_func)
     s_gc_manip_lua_func(PadStatus, controllerID);
 
@@ -1373,6 +1377,9 @@ void CallWiiInputManip(DataReportBuilder& rpt, int controllerID, int ext, const 
 {
   if (s_wii_manip_func)
     s_wii_manip_func(rpt, controllerID, ext, key);
+}
+void CallWiiInputManipLua(DataReportBuilder& rpt, int controllerID, int ext, const EncryptionKey& key)
+{
   if (s_wii_manip_lua_func)
     s_wii_manip_lua_func(rpt, controllerID, ext, key);
 }

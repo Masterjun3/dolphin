@@ -254,6 +254,10 @@ public:
   void BeginUIFrame();
   void EndUIFrame();
 
+  // Sets up ImGui state for the next frame.
+  // This function itself acquires the ImGui lock, so it should not be held.
+  void BeginImGuiFrame();
+
 protected:
   // Bitmask containing information about which configuration has changed for the backend.
   enum ConfigChangeBits : u32
@@ -281,10 +285,6 @@ protected:
 
   // Recompiles ImGui pipeline - call when stereo mode changes.
   bool RecompileImGuiPipeline();
-
-  // Sets up ImGui state for the next frame.
-  // This function itself acquires the ImGui lock, so it should not be held.
-  void BeginImGuiFrame();
 
   // Destroys all ImGui GPU resources, must do before shutdown.
   void ShutdownImGui();
